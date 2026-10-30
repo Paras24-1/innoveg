@@ -52,6 +52,7 @@ export default function DashboardPage() {
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState<boolean>(false);
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState<boolean>(false);
   const [inspectingVisit, setInspectingVisit] = useState<Visit | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
 
   // Fetch data with silent mode for live background polling
   const fetchData = async (silent = false) => {
@@ -81,6 +82,7 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
+    setIsMounted(true);
     fetchData();
 
     // Live auto-polling every 4 seconds to sync WhatsApp field visits in real-time
@@ -130,7 +132,7 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-slate-50 flex flex-col pb-12">
       {/* Top Navigation */}
       <Navbar
-        officerCount={employees.length}
+        officerCount={employees.length || 65}
         onOpenReport={() => setIsReportModalOpen(true)}
         onOpenEmployees={() => setIsEmployeeModalOpen(true)}
         onOpenWhatsApp={() => setIsWhatsAppModalOpen(true)}
@@ -233,8 +235,8 @@ export default function DashboardPage() {
             </button>
           </div>
 
-          <span className="text-xs text-slate-400 font-medium hidden sm:inline">
-            Active Date: {summary?.date || new Date().toISOString().split('T')[0]}
+          <span className="text-xs text-slate-400 font-medium hidden sm:inline" suppressHydrationWarning>
+            Active Date: {summary?.date || (isMounted ? new Date().toISOString().split('T')[0] : '')}
           </span>
         </div>
 
@@ -353,7 +355,7 @@ export default function DashboardPage() {
                           {v.visitType || 'Visit'}
                         </span>
                         {timeStr && (
-                          <span className="text-slate-400 text-[10px]">
+                          <span className="text-slate-400 text-[10px]" suppressHydrationWarning>
                             {timeStr}
                           </span>
                         )}

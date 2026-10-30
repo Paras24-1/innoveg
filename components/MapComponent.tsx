@@ -169,7 +169,7 @@ export default function MapComponent({
 
                   <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500 pt-1.5 border-t border-slate-100">
                     <span>AI Score: <strong className="text-emerald-600">{aiScore}/100</strong></span>
-                    {timeStr && <span>{timeStr}</span>}
+                    {timeStr && <span suppressHydrationWarning>{timeStr}</span>}
                   </div>
                 </div>
               </Popup>
