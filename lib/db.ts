@@ -11,6 +11,7 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 // In-memory fallback cache when DATABASE_URL is not configured
 let inMemoryEmployees: Employee[] = [...INITIAL_EMPLOYEES];
 let inMemoryVisits: Visit[] = [...INITIAL_VISITS];
+let inMemorySessions: Map<string, any> = new Map();
 
 class DatabaseStore {
   // Employee Methods
@@ -228,6 +229,85 @@ class DatabaseStore {
 
     inMemoryVisits.unshift(safeVisit);
     return safeVisit;
+  }
+
+  // Session Methods
+  async getSession(mobileNumber: string): Promise<any | null> {
+    const clean = mobileNumber.replace(/[\s\-\+]/g, '');
+    const key = clean.length > 10 ? clean.slice(-10) : clean;
+
+    try {
+      if (process.env.DATABASE_URL) {
+        const session = await prisma.botSession.findUnique({
+          where: { mobileNumber: key },
+        });
+        if (session) {
+          return {
+            mobileNumber: session.mobileNumber,
+            employeeId: session.employeeId,
+            currentStep: session.currentStep,
+            tempVisitData: typeof session.tempVisitData === 'string' ? JSON.parse(session.tempVisitData) : session.tempVisitData,
+            lastActive: session.lastActive,
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Prisma getSession error:', e);
+    }
+
+    return inMemorySessions.get(key) || null;
+  }
+
+  async saveSession(session: any): Promise<void> {
+    const clean = session.mobileNumber.replace(/[\s\-\+]/g, '');
+    const key = clean.length > 10 ? clean.slice(-10) : clean;
+    const sessionObj = {
+      ...session,
+      mobileNumber: key,
+      lastActive: new Date().toISOString(),
+    };
+
+    inMemorySessions.set(key, sessionObj);
+
+    try {
+      if (process.env.DATABASE_URL) {
+        await prisma.botSession.upsert({
+          where: { mobileNumber: key },
+          create: {
+            mobileNumber: key,
+            employeeId: session.employeeId || null,
+            currentStep: session.currentStep || 'START',
+            tempVisitData: JSON.stringify(session.tempVisitData || {}),
+            lastActive: sessionObj.lastActive,
+          },
+          update: {
+            employeeId: session.employeeId || null,
+            currentStep: session.currentStep || 'START',
+            tempVisitData: JSON.stringify(session.tempVisitData || {}),
+            lastActive: sessionObj.lastActive,
+          },
+        });
+      }
+    } catch (e) {
+      console.warn('Prisma saveSession error:', e);
+    }
+  }
+
+  async clearSession(mobileNumber: string): Promise<void> {
+    const clean = mobileNumber.replace(/[\s\-\+]/g, '');
+    const key = clean.length > 10 ? clean.slice(-10) : clean;
+
+    inMemorySessions.delete(key);
+
+    try {
+      if (process.env.DATABASE_URL) {
+        await prisma.botSession.deleteMany({
+          where: { mobileNumber: key },
+        });
+      }
+    } catch (e) {
+      console.warn('Prisma clearSession error:', e);
+    }
   }
 
   private mapPrismaVisit(v: any) {

@@ -11,6 +11,7 @@ import { EmployeeLeaderboard } from '@/components/EmployeeLeaderboard';
 import { DailyReportModal } from '@/components/DailyReportModal';
 import { AiInspectionModal } from '@/components/AiInspectionModal';
 import { EmployeeDirectoryModal } from '@/components/EmployeeDirectoryModal';
+import { WhatsAppConnectModal } from '@/components/WhatsAppConnectModal';
 
 import {
   MapPin,
@@ -18,7 +19,7 @@ import {
   Trophy,
   Sparkles,
   RefreshCw,
-
+  MessageSquare,
   FileText,
   Users,
   ShieldCheck,
@@ -47,14 +48,14 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<'command' | 'leaderboard' | 'map' | 'gallery'>('command');
 
   // Modals
-
   const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false);
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState<boolean>(false);
+  const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState<boolean>(false);
   const [inspectingVisit, setInspectingVisit] = useState<Visit | null>(null);
 
-  // Fetch initial data
-  const fetchData = async () => {
-    setIsRefreshing(true);
+  // Fetch data with silent mode for live background polling
+  const fetchData = async (silent = false) => {
+    if (!silent) setIsRefreshing(true);
     try {
       const [empRes, visitRes, repRes] = await Promise.all([
         fetch('/api/employees'),
@@ -75,12 +76,19 @@ export default function DashboardPage() {
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
     } finally {
-      setIsRefreshing(false);
+      if (!silent) setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
     fetchData();
+
+    // Live auto-polling every 4 seconds to sync WhatsApp field visits in real-time
+    const interval = setInterval(() => {
+      fetchData(true);
+    }, 4000);
+
+    return () => clearInterval(interval);
   }, []);
 
 
@@ -125,6 +133,7 @@ export default function DashboardPage() {
         officerCount={employees.length}
         onOpenReport={() => setIsReportModalOpen(true)}
         onOpenEmployees={() => setIsEmployeeModalOpen(true)}
+        onOpenWhatsApp={() => setIsWhatsAppModalOpen(true)}
         onRefresh={fetchData}
         isRefreshing={isRefreshing}
       />
@@ -146,7 +155,13 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-2.5 flex-wrap">
-
+            <button
+              onClick={() => setIsWhatsAppModalOpen(true)}
+              className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-emerald-950 bg-emerald-400 hover:bg-emerald-300 rounded-xl shadow-md transition-all active:scale-95"
+            >
+              <MessageSquare className="w-4 h-4 text-emerald-950" />
+              <span>WhatsApp Setup & Test</span>
+            </button>
 
             <button
               onClick={() => setIsReportModalOpen(true)}
@@ -357,6 +372,12 @@ export default function DashboardPage() {
       </main>
 
       {/* Modals */}
+      {isWhatsAppModalOpen && (
+        <WhatsAppConnectModal
+          onClose={() => setIsWhatsAppModalOpen(false)}
+          onVisitSuccess={fetchData}
+        />
+      )}
 
 
       {isReportModalOpen && (

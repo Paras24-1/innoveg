@@ -7,11 +7,18 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
     const authHeader = request.headers.get('authorization');
+    const queryToken = searchParams.get('token');
     const N8N_SECRET = process.env.N8N_SECRET_TOKEN || 'n8n_secret';
 
-    if (authHeader !== `Bearer ${N8N_SECRET}`) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    const isAuthorized =
+      authHeader === `Bearer ${N8N_SECRET}` ||
+      queryToken === N8N_SECRET ||
+      !process.env.N8N_SECRET_TOKEN; // Permissive in dev/default mode
+
+    if (!isAuthorized) {
+      return NextResponse.json({ success: false, error: 'Unauthorized: invalid N8N secret token' }, { status: 401 });
     }
 
     const body = await request.json();

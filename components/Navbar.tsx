@@ -1,12 +1,13 @@
 'use client';
 
 import React from 'react';
-import { Sprout, Users, RefreshCw, FileText } from 'lucide-react';
+import { Sprout, Users, RefreshCw, FileText, MessageSquare } from 'lucide-react';
 
 interface NavbarProps {
   officerCount?: number;
   onOpenReport: () => void;
   onOpenEmployees: () => void;
+  onOpenWhatsApp?: () => void;
   onRefresh: () => void;
   isRefreshing?: boolean;
 }
@@ -15,6 +16,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   officerCount = 65,
   onOpenReport,
   onOpenEmployees,
+  onOpenWhatsApp,
   onRefresh,
   isRefreshing,
 }) => {
@@ -42,6 +44,12 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Action Navigation */}
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* Live Sync Indicator */}
+            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-emerald-800 bg-emerald-50 rounded-full border border-emerald-200">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Live Sync</span>
+            </div>
+
             {/* Refresh Button */}
             <button
               onClick={onRefresh}
@@ -51,6 +59,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-emerald-600' : ''}`} />
             </button>
+
+            {/* WhatsApp Connect Modal */}
+            {onOpenWhatsApp && (
+              <button
+                onClick={onOpenWhatsApp}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-all shadow-emerald-600/20 active:scale-95"
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>WhatsApp Setup & Test</span>
+              </button>
+            )}
 
             {/* Dynamic Officers Master Directory */}
             <button
