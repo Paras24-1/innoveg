@@ -17,13 +17,16 @@ class DatabaseStore {
   // Employee Methods
   async getEmployees(): Promise<Employee[]> {
     try {
-      if (!process.env.DATABASE_URL) return inMemoryEmployees;
-      const emps = await prisma.employee.findMany();
-      if (!emps || emps.length === 0) return inMemoryEmployees;
+      if (!process.env.DATABASE_URL) return inMemoryEmployees.filter((e) => e.isActive !== false);
+      const emps = await prisma.employee.findMany({
+        where: { isActive: true },
+        orderBy: { name: 'asc' },
+      });
+      if (!emps || emps.length === 0) return inMemoryEmployees.filter((e) => e.isActive !== false);
       return emps as unknown as Employee[];
     } catch (error) {
       console.warn('Prisma getEmployees error, returning fallback:', error);
-      return inMemoryEmployees;
+      return inMemoryEmployees.filter((e) => e.isActive !== false);
     }
   }
 
