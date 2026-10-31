@@ -132,7 +132,7 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-slate-50 flex flex-col pb-12">
       {/* Top Navigation */}
       <Navbar
-        officerCount={employees.length || 73}
+        officerCount={employees.length || 44}
         onOpenReport={() => setIsReportModalOpen(true)}
         onOpenEmployees={() => setIsEmployeeModalOpen(true)}
         onOpenWhatsApp={() => setIsWhatsAppModalOpen(true)}
@@ -219,7 +219,7 @@ export default function DashboardPage() {
               }`}
             >
               <Trophy className="w-3.5 h-3.5" />
-              <span>{employees.length || 73} Officers Leaderboard</span>
+              <span>{employees.length || 44} Officers Leaderboard</span>
             </button>
 
             <button
