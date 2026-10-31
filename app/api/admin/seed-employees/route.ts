@@ -6,82 +6,48 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const validMobiles = realEmployees.map((e) => {
-      const clean = e.mobileNumber.replace(/[\s\-\+]/g, '');
-      return clean.length > 10 ? clean.slice(-10) : clean;
-    });
+    // 1. Purge visits if any exist so foreign keys do not conflict
+    await prisma.visit.deleteMany({});
 
-    const seeded = [];
-    for (const emp of realEmployees) {
+    // 2. Delete old employee records
+    await prisma.employee.deleteMany({});
+
+    // 3. Format and insert all 73 real employees
+    const formattedData = realEmployees.map((emp, index) => {
       const cleanMobile = emp.mobileNumber.replace(/[\s\-\+]/g, '');
       const tenDigit = cleanMobile.length > 10 ? cleanMobile.slice(-10) : cleanMobile;
 
-      const upserted = await prisma.employee.upsert({
-        where: { mobileNumber: tenDigit },
-        update: {
-          name: emp.name,
-          empId: emp.empId,
-          designation: emp.designation || 'Field Officer',
-          district: emp.district || 'Amravati',
-          territory: emp.territory || emp.district || 'Amravati',
-          dailyVisitTarget: Number(emp.dailyVisitTarget) || 10,
-          avatarUrl: emp.avatarUrl,
-          isActive: true,
-          joinedDate: emp.joinedDate || null,
-        },
-        create: {
-          id: emp.id,
-          empId: emp.empId,
-          name: emp.name,
-          mobileNumber: tenDigit,
-          designation: emp.designation || 'Field Officer',
-          district: emp.district || 'Amravati',
-          territory: emp.territory || emp.district || 'Amravati',
-          dailyVisitTarget: Number(emp.dailyVisitTarget) || 10,
-          avatarUrl: emp.avatarUrl,
-          isActive: true,
-          joinedDate: emp.joinedDate || null,
-        },
-      });
-      seeded.push(upserted);
-    }
-
-    // Clean up or deactivate any stale employee not in the 73 roster
-    const staleEmployees = await prisma.employee.findMany({
-      where: {
-        mobileNumber: {
-          notIn: validMobiles,
-        },
-      },
-      include: {
-        visits: true,
-      },
+      return {
+        id: emp.id || `emp-real-${index + 1}`,
+        empId: emp.empId || `INNOV-${1001 + index}`,
+        name: emp.name,
+        mobileNumber: tenDigit,
+        designation: emp.designation || 'Field Officer',
+        district: emp.district || 'Amravati',
+        territory: emp.territory || emp.district || 'Amravati',
+        dailyVisitTarget: Number(emp.dailyVisitTarget) || 10,
+        avatarUrl: emp.avatarUrl || null,
+        isActive: true,
+        joinedDate: emp.joinedDate || null,
+      };
     });
 
-    let deletedCount = 0;
-    let deactivatedCount = 0;
+    const result = await prisma.employee.createMany({
+      data: formattedData,
+      skipDuplicates: true,
+    });
 
-    for (const stale of staleEmployees) {
-      if (!stale.visits || stale.visits.length === 0) {
-        await prisma.employee.delete({ where: { id: stale.id } });
-        deletedCount++;
-      } else {
-        await prisma.employee.update({
-          where: { id: stale.id },
-          data: { isActive: false },
-        });
-        deactivatedCount++;
-      }
-    }
-
-    const currentCount = await prisma.employee.count({ where: { isActive: true } });
+    const totalInDatabase = await prisma.employee.count();
+    const sample = await prisma.employee.findMany({
+      take: 3,
+      orderBy: { id: 'asc' },
+    });
 
     return NextResponse.json({
       success: true,
-      message: `Successfully synchronized ${seeded.length} real employees into database`,
-      currentActiveEmployees: currentCount,
-      deletedStale: deletedCount,
-      deactivatedStale: deactivatedCount,
+      message: `Successfully seeded ${result.count} real employees into Supabase database!`,
+      totalInDatabase,
+      sample,
     });
   } catch (err: any) {
     console.error('Seed Employees Error:', err);
