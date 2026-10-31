@@ -15,12 +15,12 @@ export const WhatsAppConnectModal: React.FC<WhatsAppConnectModalProps> = ({ onCl
   const [originUrl, setOriginUrl] = useState('');
 
   // Test form state
-  const [testPhone, setTestPhone] = useState('9826012345');
-  const [testOfficerName, setTestOfficerName] = useState('Amit Verma');
+  const [testPhone, setTestPhone] = useState('7276888954');
+  const [testOfficerName, setTestOfficerName] = useState('Sagar Indhane');
   const [testVisitType, setTestVisitType] = useState('Dealer Visit');
   const [testEntity, setTestEntity] = useState('Shiv Shakti Krishi Kendra');
-  const [testVillage, setTestVillage] = useState('Multai');
-  const [testDistrict, setTestDistrict] = useState('Betul');
+  const [testVillage, setTestVillage] = useState('Amravati');
+  const [testDistrict, setTestDistrict] = useState('Amravati');
   const [testLat, setTestLat] = useState('21.7709');
   const [testLng, setTestLng] = useState('78.2575');
   const [testRemarks, setTestRemarks] = useState('Innoveg 108 – 20 Bags Requirement');

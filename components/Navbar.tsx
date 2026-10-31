@@ -13,7 +13,7 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
-  officerCount = 65,
+  officerCount = 73,
   onOpenReport,
   onOpenEmployees,
   onOpenWhatsApp,
