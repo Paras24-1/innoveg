@@ -1,21 +1,24 @@
 'use client';
 
 import React, { useState } from 'react';
-import { DailySummary } from '@/lib/types';
-import { X, Copy, Check, FileText, Send, Download, Sparkles, TrendingUp } from 'lucide-react';
+import { DailySummary, DailyAttendance } from '@/lib/types';
+import { X, Copy, Check, FileText, Download, ShieldCheck, Clock, CheckCircle2, AlertTriangle } from 'lucide-react';
 
 interface DailyReportModalProps {
   summary: DailySummary | null;
+  attendances?: DailyAttendance[];
   formattedWhatsAppText: string;
   onClose: () => void;
 }
 
 export const DailyReportModal: React.FC<DailyReportModalProps> = ({
   summary,
+  attendances = [],
   formattedWhatsAppText,
   onClose,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [viewMode, setViewMode] = useState<'detailed_table' | 'summary'>('detailed_table');
 
   if (!summary) return null;
 
@@ -26,28 +29,52 @@ export const DailyReportModal: React.FC<DailyReportModalProps> = ({
   };
 
   const handleExportCSV = () => {
-    const rows = [
-      ['Date', summary.date],
-      ['Total Employees', summary.totalEmployees],
-      ['Active Officers Today', summary.activeEmployees],
-      ['Total Visits', summary.totalVisits],
-      ['Unique Locations', summary.uniqueLocations],
-      ['Repeat Locations', summary.repeatLocations],
-      ['Total Field Travel KM', summary.totalEstimatedKm],
-      ['Target Achievement %', summary.overallTargetAchievementPercent],
-      [],
-      ['Visit Types Breakdown'],
-      ...Object.entries(summary.visitsByType),
-      [],
-      ['Top Performers'],
-      ...summary.topPerformers.map((p) => [p.employeeName, p.district, p.visitsCount, `${p.travelKm} KM`]),
+    const headers = [
+      'Employee ID',
+      'Employee Name',
+      'Mobile Number',
+      'Date',
+      '06:00 AM Tour Plan',
+      'Punch-In Time',
+      'Late Mark',
+      'Morning Meter KM',
+      'Total Field Visits',
+      'Total GPS KM',
+      'Evening Meter KM',
+      'Total Odometer KM',
+      'KM Difference',
+      'Punch-Out Time',
+      'Attendance Status',
+      'KM Approval Status',
+      'Manager Remarks'
     ];
 
-    const csvContent = 'data:text/csv;charset=utf-8,' + rows.map((e) => e.join(',')).join('\n');
+    const dataRows = attendances.map((a) => [
+      `"${a.employeeId}"`,
+      `"${a.employeeName}"`,
+      `"${a.employeeMobile}"`,
+      `"${a.date}"`,
+      `"${(a.tourPlan || 'None').replace(/"/g, '""')}"`,
+      `"${a.punchInTime ? new Date(a.punchInTime).toLocaleTimeString('en-IN') : 'Pending'}"`,
+      `"${a.isLate ? 'YES' : 'NO'}"`,
+      a.startKm || 0,
+      a.completedVisits,
+      a.totalGpsKm,
+      a.endKm || 0,
+      a.totalOdometerKm,
+      a.kmDifference,
+      `"${a.punchOutTime ? new Date(a.punchOutTime).toLocaleTimeString('en-IN') : 'Pending'}"`,
+      `"${a.attendanceStatus}"`,
+      `"${a.kmApprovalStatus}"`,
+      `"${(a.managerRemarks || '').replace(/"/g, '""')}"`
+    ]);
+
+    const csvRows = [headers.join(','), ...dataRows.map((e) => e.join(','))];
+    const csvContent = 'data:text/csv;charset=utf-8,' + csvRows.join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `innoveg_field_report_${summary.date}.csv`);
+    link.setAttribute('download', `innoveg_7pm_daily_report_${summary.date}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -55,148 +82,215 @@ export const DailyReportModal: React.FC<DailyReportModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl max-w-3xl w-full overflow-hidden shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-white rounded-2xl max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-emerald-900 text-white">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-emerald-800 flex items-center justify-center font-bold">
-              <FileText className="w-5 h-5 text-emerald-300" />
+        <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-900 text-white">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-emerald-600/30 text-emerald-400 border border-emerald-500/30">
+              <FileText className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="font-bold text-base sm:text-lg">Daily Automatic Management Report (7:00 PM)</h2>
-              <p className="text-xs text-emerald-200">Date: {summary.date} · InnoVeg Central Field Intelligence</p>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base sm:text-lg font-bold">7:00 PM Daily Performance & KM Reconciliation Report</h2>
+                <span className="px-2 py-0.5 text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-400/30">
+                  {summary.date}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">
+                Official Executive Field Summary, Vehicle Auditing & Attendance Record
+              </p>
             </div>
           </div>
+
           <button
             onClick={onClose}
-            className="p-1.5 text-emerald-200 hover:text-white hover:bg-emerald-800 rounded-lg"
+            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-5 space-y-6 max-h-[75vh] overflow-y-auto">
-          {/* Executive KPI Summary */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-              <p className="text-xs text-slate-500 font-medium">Total Visits</p>
-              <p className="text-xl font-extrabold text-slate-900 mt-0.5">{summary.totalVisits}</p>
-              <p className="text-[11px] text-slate-500">{summary.uniqueLocations} Unique · {summary.repeatLocations} Repeat</p>
-            </div>
-
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-              <p className="text-xs text-slate-500 font-medium">Active Officers</p>
-              <p className="text-xl font-extrabold text-slate-900 mt-0.5">
-                {summary.activeEmployees} <span className="text-xs font-normal text-slate-500">/ {summary.totalEmployees}</span>
-              </p>
-              <p className="text-[11px] text-emerald-600 font-semibold">
-                {Math.round((summary.activeEmployees / summary.totalEmployees) * 100)}% active team
-              </p>
-            </div>
-
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-              <p className="text-xs text-slate-500 font-medium">Target Achievement</p>
-              <p className="text-xl font-extrabold text-amber-600 mt-0.5">
-                {summary.overallTargetAchievementPercent}%
-              </p>
-              <p className="text-[11px] text-slate-500">Against daily quota</p>
-            </div>
-
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-              <p className="text-xs text-slate-500 font-medium">Field Route Travel</p>
-              <p className="text-xl font-extrabold text-indigo-600 mt-0.5">
-                {summary.totalEstimatedKm} <span className="text-xs font-normal text-slate-500">KM</span>
-              </p>
-              <p className="text-[11px] text-slate-500">GPS Haversine sum</p>
-            </div>
+        {/* View Switcher Bar */}
+        <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-200 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setViewMode('detailed_table')}
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                viewMode === 'detailed_table' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Full Reconciliation Table ({attendances.length} Officers)
+            </button>
+            <button
+              onClick={() => setViewMode('summary')}
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                viewMode === 'summary' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              WhatsApp Executive Text
+            </button>
           </div>
 
-          {/* Visit Type Breakdown */}
-          <div>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-              Visit Type Distribution
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-              {Object.entries(summary.visitsByType).map(([type, count]) => (
-                <div key={type} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-xs">
-                  <span className="text-slate-700 font-medium">{type}</span>
-                  <span className="font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-100">
-                    {count}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Top Officers */}
-          {summary.topPerformers.length > 0 && (
-            <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 flex items-center gap-1">
-                <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
-                Top Performing Field Officers
-              </h3>
-              <div className="space-y-1.5">
-                {summary.topPerformers.map((p, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between p-2 bg-emerald-50/50 rounded-lg border border-emerald-100 text-xs"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-emerald-700 w-4">#{idx + 1}</span>
-                      <span className="font-bold text-slate-800">{p.employeeName}</span>
-                      <span className="text-slate-500">({p.district})</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-semibold text-slate-700">{p.visitsCount} visits</span>
-                      <span className="text-emerald-700 font-bold">{p.targetAchievementPercent}%</span>
-                      <span className="text-slate-500">{p.travelKm} KM</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Formatted WhatsApp Message Preview */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                <Send className="w-3.5 h-3.5 text-emerald-600" />
-                WhatsApp Broadcast Message Preview
-              </h3>
-              <button
-                onClick={handleCopy}
-                className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-md border border-emerald-200 transition-colors"
-              >
-                {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                {copied ? 'Copied!' : 'Copy for WhatsApp'}
-              </button>
-            </div>
-            <div className="bg-[#ECE5DD] p-4 rounded-xl border border-slate-300">
-              <pre className="whitespace-pre-wrap font-sans text-xs text-slate-900 bg-white p-4 rounded-lg shadow-sm border border-slate-200 leading-relaxed max-h-60 overflow-y-auto">
-                {formattedWhatsAppText}
-              </pre>
-            </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportCSV}
+              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg shadow-sm transition-all"
+            >
+              <Download className="w-3.5 h-3.5 text-slate-600" />
+              <span>Export CSV</span>
+            </button>
+            <button
+              onClick={handleCopy}
+              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-all"
+            >
+              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copied ? 'Copied Text' : 'Copy for WhatsApp'}</span>
+            </button>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
-          <button
-            onClick={handleExportCSV}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100"
-          >
-            <Download className="w-4 h-4 text-slate-600" />
-            Export CSV
-          </button>
+        {/* Body Content */}
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1">
+          {viewMode === 'detailed_table' ? (
+            <div className="space-y-4">
+              {/* Quick Summary Pill Bar */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200 text-center text-xs">
+                <div>
+                  <div className="text-[10px] text-slate-500 uppercase font-bold">Workforce</div>
+                  <div className="text-base font-extrabold text-slate-900">{summary.totalEmployees} Officers</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-500 uppercase font-bold">Present (≥3 Visits)</div>
+                  <div className="text-base font-extrabold text-emerald-600">{summary.presentCount || 0} Officers</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-500 uppercase font-bold">Late Punch-In (&gt;10 AM)</div>
+                  <div className="text-base font-extrabold text-amber-600">{summary.latePunchInCount || 0} Officers</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-500 uppercase font-bold">KM Discrepancies (&gt;15 KM)</div>
+                  <div className="text-base font-extrabold text-rose-600">{summary.kmPendingReviewCount || 0} Flagged</div>
+                </div>
+              </div>
 
+              {/* PDF Specific Detailed Reconciliation Table */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                <div className="overflow-x-auto max-h-[50vh]">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead className="sticky top-0 bg-slate-100 z-10 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
+                      <tr>
+                        <th className="py-2.5 px-3">Officer</th>
+                        <th className="py-2.5 px-2">Tour Plan</th>
+                        <th className="py-2.5 px-2">Punch-In</th>
+                        <th className="py-2.5 px-2 text-center">Visits</th>
+                        <th className="py-2.5 px-2 text-center">GPS KM</th>
+                        <th className="py-2.5 px-2 text-center">Odo KM</th>
+                        <th className="py-2.5 px-2 text-center">KM Diff</th>
+                        <th className="py-2.5 px-2">Punch-Out</th>
+                        <th className="py-2.5 px-3 text-center">Attendance</th>
+                        <th className="py-2.5 px-3 text-center">KM Audit</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {attendances.map((att) => (
+                        <tr key={att.employeeId} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-3">
+                            <div className="font-bold text-slate-900">{att.employeeName}</div>
+                            <div className="text-[10px] text-slate-500 font-mono">{att.employeeMobile}</div>
+                          </td>
+                          <td className="py-2.5 px-2 max-w-[140px] truncate text-slate-600" title={att.tourPlan || ''}>
+                            {att.tourPlan || <span className="text-slate-400 italic">None</span>}
+                          </td>
+                          <td className="py-2.5 px-2 whitespace-nowrap">
+                            {att.punchInTime ? (
+                              <span className={att.isLate ? 'text-amber-700 font-bold' : 'text-slate-800'}>
+                                {new Date(att.punchInTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                                {att.isLate && ' ⚠️'}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-2 text-center font-bold text-slate-800">
+                            {att.completedVisits}
+                          </td>
+                          <td className="py-2.5 px-2 text-center font-mono text-slate-700">
+                            {att.totalGpsKm}
+                          </td>
+                          <td className="py-2.5 px-2 text-center font-mono text-slate-700">
+                            {att.totalOdometerKm}
+                          </td>
+                          <td className={`py-2.5 px-2 text-center font-bold font-mono ${att.kmDifference > 15 ? 'text-rose-600' : 'text-slate-700'}`}>
+                            {att.kmDifference}
+                          </td>
+                          <td className="py-2.5 px-2 whitespace-nowrap">
+                            {att.punchOutTime ? (
+                              new Date(att.punchOutTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                            {att.attendanceStatus === 'FULL_DAY' ? (
+                              <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 rounded-full border border-emerald-200">
+                                Full Day
+                              </span>
+                            ) : att.attendanceStatus === 'HALF_DAY' ? (
+                              <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 rounded-full border border-amber-200">
+                                Half Day
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 text-[10px] font-bold bg-rose-100 text-rose-800 rounded-full border border-rose-200">
+                                Absent
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                            {att.kmApprovalStatus === 'PENDING_REVIEW' ? (
+                              <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-900 rounded-full border border-amber-300">
+                                Review Req.
+                              </span>
+                            ) : att.kmApprovalStatus === 'MANUALLY_APPROVED' ? (
+                              <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-100 text-blue-800 rounded-full border border-blue-200">
+                                Approved
+                              </span>
+                            ) : att.kmApprovalStatus === 'REJECTED' ? (
+                              <span className="px-2 py-0.5 text-[10px] font-bold bg-rose-100 text-rose-800 rounded-full border border-rose-200">
+                                Rejected
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 rounded-full border border-emerald-200">
+                                Auto-OK
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>Copy-paste ready for WhatsApp Management Broadcasting:</span>
+              </div>
+              <pre className="p-4 bg-slate-900 text-emerald-300 rounded-xl font-mono text-xs whitespace-pre-wrap leading-relaxed shadow-inner overflow-x-auto border border-slate-800">
+                {formattedWhatsAppText}
+              </pre>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
+          <span>InnoVeg AI Field Operations & Intelligence System</span>
           <button
-            onClick={handleCopy}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm"
+            onClick={onClose}
+            className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold rounded-lg transition-colors"
           >
-            {copied ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
-            {copied ? 'Copied to Clipboard' : 'Copy Broadcast Text'}
+            Close
           </button>
         </div>
       </div>

@@ -9,18 +9,65 @@ datasource db {
 }
 
 model Employee {
-  id               String   @id @default(cuid())
-  empId            String   @unique
+  id               String            @id @default(cuid())
+  empId            String            @unique
   name             String
-  mobileNumber     String   @unique
+  mobileNumber     String            @unique
   designation      String
   district         String
   territory        String
   dailyVisitTarget Int
   avatarUrl        String?
-  isActive         Boolean  @default(true)
+  isActive         Boolean           @default(true)
   joinedDate       String?
   visits           Visit[]
+  attendances      DailyAttendance[]
+}
+
+model DailyAttendance {
+  id                   String   @id @default(cuid())
+  employeeId           String
+  employee             Employee @relation(fields: [employeeId], references: [id])
+  employeeName         String
+  employeeMobile       String
+  date                 String   // YYYY-MM-DD
+  
+  // 06:00 AM Tour Plan
+  tourPlan             String?
+  tourPlanSubmittedAt  String?
+
+  // Morning Punch-In (Before 10:00 AM)
+  punchInTime          String?  // ISO timestamp or HH:mm
+  punchInLat           Float?
+  punchInLng           Float?
+  punchInLocationName  String?
+  punchInMeterPhoto    String?
+  startKm              Float?
+  isLate               Boolean  @default(false)
+
+  // Evening Punch-Out
+  punchOutTime         String?
+  punchOutLat          Float?
+  punchOutLng          Float?
+  punchOutLocationName String?
+  punchOutMeterPhoto   String?
+  endKm                Float?
+
+  // KM Calculation & Audit
+  totalOdometerKm      Float    @default(0)
+  totalGpsKm           Float    @default(0)
+  kmDifference         Float    @default(0)
+  kmApprovalStatus     String   @default("AUTO_APPROVED") // AUTO_APPROVED | PENDING_REVIEW | MANUALLY_APPROVED | REJECTED
+  managerRemarks       String?
+
+  // Daily Visits & Performance Attendance Status
+  completedVisits      Int      @default(0)
+  attendanceStatus     String   @default("ABSENT") // FULL_DAY | HALF_DAY | ABSENT
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([employeeId, date])
 }
 
 model Visit {
@@ -62,4 +109,3 @@ model BotSession {
   tempVisitData    String   // Stored as JSON string
   lastActive       String
 }
-

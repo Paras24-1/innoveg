@@ -6,6 +6,7 @@ export async function generateDailyManagementSummary(targetDateStr?: string): Pr
   const dateStr = targetDateStr || new Date().toISOString().split('T')[0];
   const allEmployees = await db.getEmployees();
   const allVisits = await db.getVisits();
+  const allAttendances = await db.getDailyAttendances(dateStr);
 
   // Filter visits for the specified date
   const dayVisits = allVisits.filter((v) => {
@@ -44,7 +45,8 @@ export async function generateDailyManagementSummary(targetDateStr?: string): Pr
   const employeePerformances = allEmployees.map((emp) => {
     const empVisits = dayVisits.filter((v) => v.employeeId === emp.id);
     const count = empVisits.length;
-    const target = emp.dailyVisitTarget || 10;
+    // PDF Rule: Minimum daily target is 5 visits
+    const target = 5;
     const targetAchievedPercent = Math.min(100, Math.round((count / target) * 100));
     
     // Sort chronological for route
@@ -70,7 +72,7 @@ export async function generateDailyManagementSummary(targetDateStr?: string): Pr
     employeePerformances.reduce((acc, curr) => acc + curr.travelKm, 0).toFixed(1)
   );
 
-  const totalTargetPlanned = allEmployees.reduce((acc, curr) => acc + curr.dailyVisitTarget, 0);
+  const totalTargetPlanned = allEmployees.length * 5;
   const overallTargetAchievementPercent = totalTargetPlanned > 0
     ? Math.round((dayVisits.length / totalTargetPlanned) * 100)
     : 0;
@@ -87,7 +89,7 @@ export async function generateDailyManagementSummary(targetDateStr?: string): Pr
   }));
 
   const lowPerformers = employeePerformances
-    .filter((p) => p.visitsCount < (p.target * 0.6))
+    .filter((p) => p.visitsCount < 3)
     .slice(0, 5)
     .map((p) => ({
       employeeName: p.employeeName,
@@ -95,6 +97,27 @@ export async function generateDailyManagementSummary(targetDateStr?: string): Pr
       visitsCount: p.visitsCount,
       targetAchievementPercent: p.targetAchievementPercent,
     }));
+
+  // PDF specific Attendance & KM counters
+  let fullDayCount = 0;
+  let halfDayCount = 0;
+  let latePunchInCount = 0;
+  let kmAutoApprovedCount = 0;
+  let kmPendingReviewCount = 0;
+
+  allAttendances.forEach((a) => {
+    if (a.attendanceStatus === 'FULL_DAY') fullDayCount++;
+    else if (a.attendanceStatus === 'HALF_DAY') halfDayCount++;
+    
+    if (a.isLate) latePunchInCount++;
+    if (a.kmApprovalStatus === 'PENDING_REVIEW') kmPendingReviewCount++;
+    else if (a.kmApprovalStatus === 'AUTO_APPROVED' || a.kmApprovalStatus === 'MANUALLY_APPROVED') {
+      kmAutoApprovedCount++;
+    }
+  });
+
+  const presentCount = fullDayCount + halfDayCount;
+  const absentCount = Math.max(0, allEmployees.length - presentCount);
 
   return {
     date: dateStr,
@@ -106,35 +129,42 @@ export async function generateDailyManagementSummary(targetDateStr?: string): Pr
     visitsByType,
     totalEstimatedKm,
     overallTargetAchievementPercent,
+    presentCount,
+    latePunchInCount,
+    absentCount,
+    halfDayCount,
+    kmAutoApprovedCount,
+    kmPendingReviewCount,
     topPerformers,
     lowPerformers,
   };
 }
 
 export function formatWhatsAppDailyReportText(summary: DailySummary): string {
-  return `📊 *INNOVEG DAILY FIELD REPORT*
+  return `📊 *INNOVEG 7 PM DAILY EXECUTIVE PERFORMANCE REPORT*
 📅 *Date:* ${summary.date}
 ━━━━━━━━━━━━━━━━━━━
-👥 *Total Field Officers:* ${summary.totalEmployees}
-🟢 *Active Today:* ${summary.activeEmployees} (${Math.round((summary.activeEmployees / summary.totalEmployees) * 100)}%)
-📍 *Total Visits Recorded:* ${summary.totalVisits}
-✨ *Unique Locations:* ${summary.uniqueLocations}
-🔁 *Repeat Locations:* ${summary.repeatLocations}
-🚗 *Total Field Travel:* ~${summary.totalEstimatedKm} KM
+👥 *Field Workforce:* ${summary.totalEmployees} Officers
+🟢 *Present (Full Day $\ge$5 Visits):* ${summary.presentCount - (summary.halfDayCount || 0)}
+🟡 *Half Day (3–4 Visits):* ${summary.halfDayCount || 0}
+🔴 *Absent / Review (0–2 Visits):* ${summary.absentCount}
+⏰ *Late Punch-In (>10:00 AM):* ${summary.latePunchInCount}
 
-📈 *Visit Type Breakdown:*
+🚗 *Vehicle KM & Odometer Reconciliation:*
+• Total Field Route: ~${summary.totalEstimatedKm} KM
+• Auto-Approved KM ($\le$15 KM diff): ${summary.kmAutoApprovedCount} Officers
+• Pending Manager Review (>15 KM diff): ${summary.kmPendingReviewCount} Officers
+
+🎯 *Field Activity:*
+• Total Visits Recorded: ${summary.totalVisits}
 • Farmer Visits: ${summary.visitsByType['Farmer Visit']}
 • Dealer Visits: ${summary.visitsByType['Dealer Visit']}
 • Distributor Visits: ${summary.visitsByType['Distributor Visit']}
-• Field Visits: ${summary.visitsByType['Field Visit']}
-• Field Programs: ${summary.visitsByType['Field Program']}
-• Others: ${summary.visitsByType['Other']}
+• Field Programs & Others: ${summary.visitsByType['Field Program'] + summary.visitsByType['Field Visit'] + summary.visitsByType['Other']}
 
-🎯 *Overall Target Achievement:* ${summary.overallTargetAchievementPercent}%
-
-🏆 *Top Performing Officers:*
-${summary.topPerformers.map((p, idx) => `${idx + 1}. ${p.employeeName} (${p.district}) - ${p.visitsCount} visits (${p.travelKm} KM)`).join('\n') || 'None recorded'}
+🏆 *Top Performing Field Officers:*
+${summary.topPerformers.map((p, idx) => `${idx + 1}. ${p.employeeName} (${p.district}) - ${p.visitsCount} visits | ${p.travelKm} KM`).join('\n') || 'None recorded'}
 
 ━━━━━━━━━━━━━━━━━━━
-*InnoVeg Central Digital Reporting System*`;
+*InnoVeg Central Digital Operations Hub*`;
 }

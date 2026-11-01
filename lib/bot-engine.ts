@@ -1,6 +1,7 @@
-import { db } from './db';
+import { db, getTodayDateString } from './db';
 import { VisitType, Visit, BotStep, BotSession } from './types';
 import { calculateDistanceKm, isDuplicateLocation } from './geo';
+import { extractOdometerKm } from './gemini-ocr';
 
 export interface BotIncomingMessage {
   fromMobile: string;
@@ -58,9 +59,9 @@ export async function processIncomingWhatsAppMessage(
       name: `Officer (${tenDigit})`,
       mobileNumber: tenDigit,
       designation: 'Field Officer',
-      district: 'Betul',
+      district: 'Amravati',
       territory: 'Field Zone',
-      dailyVisitTarget: 10,
+      dailyVisitTarget: 5,
       isActive: true,
     });
   }
@@ -78,6 +79,357 @@ export async function processIncomingWhatsAppMessage(
 
   const text = (msg.body || '').trim();
   const lowerText = text.toLowerCase();
+  const firstName = employee.name.split(' ')[0] || 'Officer';
+
+  // ==========================================
+  // FLOW 1: TOUR PLAN SUBMISSION (06:00 AM)
+  // ==========================================
+  if (
+    lowerText.startsWith('tour plan:') ||
+    lowerText.startsWith('tour plan') ||
+    lowerText.startsWith('plan:') ||
+    session.currentStep === 'SUBMIT_TOUR_PLAN'
+  ) {
+    let planText = text.replace(/^(tour plan:?|plan:?)\s*/i, '').trim();
+
+    if (!planText || planText.length < 3) {
+      session.currentStep = 'SUBMIT_TOUR_PLAN';
+      await db.saveSession(session);
+      return {
+        replyText: `📋 *06:00 AM Tour Plan*\n\n${firstName} जी, कृपया आज का Tour Plan भेजें (कि किन-किन गाँवों, किसानों और डीलरों से मिलना है).\n\nउदाहरण: *आज वरुड़ गाँव में 3 किसान विजिट और 2 डीलर विजिट (मल्टी एग्रो, श्रीराम ट्रेडर्स) प्लान है।*`,
+        currentStep: 'SUBMIT_TOUR_PLAN',
+      };
+    }
+
+    await db.submitTourPlan({
+      employeeId: employee.id,
+      tourPlan: planText,
+    });
+
+    session.currentStep = 'START';
+    session.tempVisitData = {};
+    await db.saveSession(session);
+
+    return {
+      replyText: `✅ *Tour Plan दर्ज कर लिया गया!*\n\n📝 योजना: ${planText}\n\n⏰ *स्मरण*: कृपया सुबह 10:00 AM से पहले *Punch In* करें। (Punch-In के लिए *Punch In* लिखें या नीचे चुनें)।`,
+      currentStep: 'START',
+      quickReplies: ['Punch In', 'New Visit'],
+    };
+  }
+
+  // ==========================================
+  // FLOW 2: MORNING PUNCH-IN (Before 10:00 AM)
+  // ==========================================
+  if (
+    lowerText === 'punch in' ||
+    lowerText === 'punchin' ||
+    lowerText === 'punch-in' ||
+    lowerText === 'पंच इन' ||
+    lowerText === 'duty start' ||
+    lowerText === 'in'
+  ) {
+    session.currentStep = 'PUNCH_IN_LOCATION';
+    session.tempVisitData = {};
+    await db.saveSession(session);
+
+    return {
+      replyText: `🌅 *Morning Punch-In (InnoVeg)*\n\n${firstName} जी, ड्यूटी शुरू करने के लिए कृपया अपनी 📌 **Current Location (GPS)** शेयर करें।\n\n*(WhatsApp 📎 Attachment -> Location चुनें या Latitude, Longitude लिखें)*`,
+      currentStep: 'PUNCH_IN_LOCATION',
+      requiresLocation: true,
+    };
+  }
+
+  // Punch-In Step 1: Receiving Location
+  if (session.currentStep === 'PUNCH_IN_LOCATION') {
+    let lat: number | undefined;
+    let lng: number | undefined;
+    let locName = employee.territory;
+
+    if (msg.location && !isNaN(Number(msg.location.latitude))) {
+      lat = Number(msg.location.latitude);
+      lng = Number(msg.location.longitude);
+      if (msg.location.name) locName = msg.location.name;
+    } else if (text.includes(',')) {
+      const parts = text.split(',');
+      const parsedLat = parseFloat(parts[0].trim());
+      const parsedLng = parseFloat(parts[1].trim());
+      if (!isNaN(parsedLat) && !isNaN(parsedLng)) {
+        lat = parsedLat;
+        lng = parsedLng;
+      }
+    }
+
+    if (lat === undefined || lng === undefined) {
+      return {
+        replyText: `⚠️ लोकेशन नहीं मिली।\n\nकृपया WhatsApp से अपनी 📌 **Live/Current Location** भेजें या लिखें (जैसे *20.9320, 77.7523*).`,
+        currentStep: 'PUNCH_IN_LOCATION',
+        requiresLocation: true,
+      };
+    }
+
+    session.tempVisitData.latitude = lat;
+    session.tempVisitData.longitude = lng;
+    session.tempVisitData.locationName = locName;
+    session.currentStep = 'PUNCH_IN_METER_PHOTO';
+    await db.saveSession(session);
+
+    return {
+      replyText: `📍 *लोकेशन प्राप्त हुई*: ${lat.toFixed(4)}, ${lng.toFixed(4)}\n\n📷 अब कृपया अपनी **गाड़ी के मीटर (Odometer) की स्पष्ट फोटो** भेजें।\n\n*(AI मीटर से KM अपने आप पढ़ लेगा या आप फोटो के साथ KM लिख सकते हैं)*`,
+      currentStep: 'PUNCH_IN_METER_PHOTO',
+      requiresPhoto: true,
+    };
+  }
+
+  // Punch-In Step 2: Receiving Meter Photo & Start KM
+  if (session.currentStep === 'PUNCH_IN_METER_PHOTO') {
+    const photoUrl = msg.photoUrl || (text.startsWith('http') ? text : undefined);
+
+    if (!photoUrl && !text.match(/\d{3,}/)) {
+      return {
+        replyText: `📷 कृपया गाड़ी के मीटर की फोटो भेजें या शुरुआती किलोमीटर लिखें (जैसे *25000*).`,
+        currentStep: 'PUNCH_IN_METER_PHOTO',
+        requiresPhoto: true,
+      };
+    }
+
+    // Try AI/OCR extraction or fallback text
+    const extracted = await extractOdometerKm(photoUrl || '', text);
+    let startKm = extracted.km;
+
+    if (!startKm) {
+      // Prompt for explicit KM if unreadable
+      session.tempVisitData.meterPhotoUrl = photoUrl;
+      session.currentStep = 'PUNCH_IN_KM';
+      await db.saveSession(session);
+
+      return {
+        replyText: `📷 फोटो प्राप्त हो गई!\n\nकृपया वर्तमान **Odometer KM Reading** संख्या में लिखकर भेजें (उदाहरण: *25000*).`,
+        currentStep: 'PUNCH_IN_KM',
+      };
+    }
+
+    session.tempVisitData.startKm = startKm;
+    session.tempVisitData.meterPhotoUrl = photoUrl;
+
+    const lat = session.tempVisitData.latitude || 21.7709;
+    const lng = session.tempVisitData.longitude || 78.2575;
+
+    const att = await db.recordPunchIn({
+      employeeId: employee.id,
+      lat,
+      lng,
+      locationName: session.tempVisitData.locationName,
+      meterPhotoUrl: photoUrl,
+      startKm,
+    });
+
+    session.currentStep = 'START';
+    session.tempVisitData = {};
+    await db.saveSession(session);
+
+    const lateStatus = att.isLate ? '⚠️ Late Mark (10:00 AM के बाद)' : '✅ On-Time';
+
+    return {
+      replyText: `✅ *Morning Punch-In सफल!*\n\n👤 अधिकारी: ${employee.name}\n⏰ समय: ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}\n🚦 स्थिति: ${lateStatus}\n🚗 शुरुआती KM: ${startKm} KM\n📍 स्थान: ${att.punchInLocationName || employee.territory}\n\n🎯 *नियम*: Full Day Attendance के लिए कम से कम 5 Field Visits अनिवार्य हैं।\n\nविजिट शुरू करने के लिए *New Visit* भेजें।`,
+      currentStep: 'START',
+      quickReplies: ['New Visit', 'Menu'],
+    };
+  }
+
+  // Punch-In Step 3: Explicit KM fallback
+  if (session.currentStep === 'PUNCH_IN_KM') {
+    const num = parseFloat(text.replace(/[^0-9.]/g, ''));
+    if (isNaN(num) || num <= 0) {
+      return {
+        replyText: `कृपया मान्य किलोमीटर संख्या भेजें (जैसे *25000*).`,
+        currentStep: 'PUNCH_IN_KM',
+      };
+    }
+
+    const lat = session.tempVisitData.latitude || 21.7709;
+    const lng = session.tempVisitData.longitude || 78.2575;
+
+    const att = await db.recordPunchIn({
+      employeeId: employee.id,
+      lat,
+      lng,
+      locationName: session.tempVisitData.locationName,
+      meterPhotoUrl: session.tempVisitData.meterPhotoUrl,
+      startKm: num,
+    });
+
+    session.currentStep = 'START';
+    session.tempVisitData = {};
+    await db.saveSession(session);
+
+    const lateStatus = att.isLate ? '⚠️ Late Mark' : '✅ On-Time';
+
+    return {
+      replyText: `✅ *Morning Punch-In दर्ज!*\n\n🚗 शुरुआती KM: ${num} KM\n🚦 स्थिति: ${lateStatus}\n\nअब आप अपनी फील्ड विजिट शुरू कर सकते हैं। नई विजिट के लिए *New Visit* लिखें।`,
+      currentStep: 'START',
+      quickReplies: ['New Visit', 'Menu'],
+    };
+  }
+
+  // ==========================================
+  // FLOW 3: EVENING PUNCH-OUT & KM AUDIT
+  // ==========================================
+  if (
+    lowerText === 'punch out' ||
+    lowerText === 'punchout' ||
+    lowerText === 'punch-out' ||
+    lowerText === 'पंच आउट' ||
+    lowerText === 'duty off' ||
+    lowerText === 'out'
+  ) {
+    session.currentStep = 'PUNCH_OUT_LOCATION';
+    session.tempVisitData = {};
+    await db.saveSession(session);
+
+    return {
+      replyText: `🌇 *Evening Punch-Out (InnoVeg)*\n\n${firstName} जी, दिन का कार्य समाप्त करने के लिए कृपया अपनी 📌 **Current Location (GPS)** भेजें।`,
+      currentStep: 'PUNCH_OUT_LOCATION',
+      requiresLocation: true,
+    };
+  }
+
+  // Punch-Out Step 1: Receiving Location
+  if (session.currentStep === 'PUNCH_OUT_LOCATION') {
+    let lat: number | undefined;
+    let lng: number | undefined;
+
+    if (msg.location && !isNaN(Number(msg.location.latitude))) {
+      lat = Number(msg.location.latitude);
+      lng = Number(msg.location.longitude);
+    } else if (text.includes(',')) {
+      const parts = text.split(',');
+      const parsedLat = parseFloat(parts[0].trim());
+      const parsedLng = parseFloat(parts[1].trim());
+      if (!isNaN(parsedLat) && !isNaN(parsedLng)) {
+        lat = parsedLat;
+        lng = parsedLng;
+      }
+    }
+
+    if (lat === undefined || lng === undefined) {
+      return {
+        replyText: `⚠️ लोकेशन नहीं मिली।\n\nकृपया WhatsApp से अपनी 📌 **Current Location** भेजें।`,
+        currentStep: 'PUNCH_OUT_LOCATION',
+        requiresLocation: true,
+      };
+    }
+
+    session.tempVisitData.latitude = lat;
+    session.tempVisitData.longitude = lng;
+    session.currentStep = 'PUNCH_OUT_METER_PHOTO';
+    await db.saveSession(session);
+
+    return {
+      replyText: `📍 लोकेशन प्राप्त हुई!\n\n📷 अब कृपया शाम के **गाड़ी के मीटर (Closing Odometer) की फोटो** भेजें।`,
+      currentStep: 'PUNCH_OUT_METER_PHOTO',
+      requiresPhoto: true,
+    };
+  }
+
+  // Punch-Out Step 2: Receiving Closing Meter Photo
+  if (session.currentStep === 'PUNCH_OUT_METER_PHOTO') {
+    const photoUrl = msg.photoUrl || (text.startsWith('http') ? text : undefined);
+
+    if (!photoUrl && !text.match(/\d{3,}/)) {
+      return {
+        replyText: `📷 कृपया शाम के मीटर की फोटो भेजें या अंतिम किलोमीटर लिखें।`,
+        currentStep: 'PUNCH_OUT_METER_PHOTO',
+        requiresPhoto: true,
+      };
+    }
+
+    const extracted = await extractOdometerKm(photoUrl || '', text);
+    let endKm = extracted.km;
+
+    if (!endKm) {
+      session.tempVisitData.meterPhotoUrl = photoUrl;
+      session.currentStep = 'PUNCH_OUT_KM';
+      await db.saveSession(session);
+
+      return {
+        replyText: `📷 फोटो प्राप्त हो गई!\n\nकृपया अंतिम **Closing Odometer KM** संख्या में लिखकर भेजें (उदाहरण: *25085*).`,
+        currentStep: 'PUNCH_OUT_KM',
+      };
+    }
+
+    const att = await db.recordPunchOut({
+      employeeId: employee.id,
+      lat: session.tempVisitData.latitude,
+      lng: session.tempVisitData.longitude,
+      meterPhotoUrl: photoUrl,
+      endKm,
+    });
+
+    session.currentStep = 'START';
+    session.tempVisitData = {};
+    await db.saveSession(session);
+
+    const approvalStatus =
+      att.kmApprovalStatus === 'AUTO_APPROVED'
+        ? 'Auto Approved ✅'
+        : `⚠️ अंतर 15 KM से अधिक है (${att.kmDifference} KM अंतर) - मैनेजर रिव्यू के लिए भेजा गया`;
+
+    const attText =
+      att.attendanceStatus === 'FULL_DAY'
+        ? 'Full Day (पूरा दिन) 🟢'
+        : att.attendanceStatus === 'HALF_DAY'
+        ? 'Half Day (आधा दिन) 🟡'
+        : 'Absent / Review 🔴';
+
+    return {
+      replyText: `🏁 *Evening Punch-Out सफल!*\n\n📊 *आज का दैनिक विवरण:*\n👤 अधिकारी: ${employee.name}\n🚗 Odometer KM: ${att.totalOdometerKm} KM\n📍 GPS Tracked KM: ${att.totalGpsKm} KM\n📐 अंतर: ${att.kmDifference} KM (${approvalStatus})\n🎯 कुल Field Visits: ${att.completedVisits}\n🏷️ Attendance Status: *${attText}*\n\nधन्यवाद! आज का कार्य सफलतापूर्वक समाप्त हुआ।`,
+      currentStep: 'START',
+    };
+  }
+
+  // Punch-Out Step 3: Explicit End KM fallback
+  if (session.currentStep === 'PUNCH_OUT_KM') {
+    const endKm = parseFloat(text.replace(/[^0-9.]/g, ''));
+    if (isNaN(endKm) || endKm <= 0) {
+      return {
+        replyText: `कृपया मान्य अंतिम किलोमीटर संख्या भेजें (जैसे *25085*).`,
+        currentStep: 'PUNCH_OUT_KM',
+      };
+    }
+
+    const att = await db.recordPunchOut({
+      employeeId: employee.id,
+      lat: session.tempVisitData.latitude,
+      lng: session.tempVisitData.longitude,
+      meterPhotoUrl: session.tempVisitData.meterPhotoUrl,
+      endKm,
+    });
+
+    session.currentStep = 'START';
+    session.tempVisitData = {};
+    await db.saveSession(session);
+
+    const approvalStatus =
+      att.kmApprovalStatus === 'AUTO_APPROVED'
+        ? 'Auto Approved ✅'
+        : `⚠️ अंतर 15 KM से अधिक (${att.kmDifference} KM अंतर) - मैनेजर रिव्यू`;
+
+    const attText =
+      att.attendanceStatus === 'FULL_DAY'
+        ? 'Full Day 🟢'
+        : att.attendanceStatus === 'HALF_DAY'
+        ? 'Half Day 🟡'
+        : 'Absent / Review 🔴';
+
+    return {
+      replyText: `🏁 *Punch-Out दर्ज!*\n\n🚗 Odometer KM: ${att.totalOdometerKm} KM\n📍 GPS KM: ${att.totalGpsKm} KM\n📐 अंतर: ${att.kmDifference} KM (${approvalStatus})\n🎯 कुल Visits: ${att.completedVisits}\n🏷️ Attendance: *${attText}*\n\nधन्यवाद!`,
+      currentStep: 'START',
+    };
+  }
+
+  // ==========================================
+  // FLOW 4: FIELD VISITS (Min. 5 Targets)
+  // ==========================================
 
   // Reset or start new visit command anytime
   if (
@@ -98,10 +450,8 @@ export async function processIncomingWhatsAppMessage(
     session.tempVisitData = {};
     await db.saveSession(session);
 
-    const firstName = employee.name.split(' ')[0] || 'Officer';
-
     return {
-      replyText: `नमस्कार ${firstName} जी 👋 (InnoVeg Reporting Bot)\n\nनई Field Visit दर्ज करने के लिए Visit Type चुनें:\n\n1️⃣ Farmer Visit\n2️⃣ Dealer Visit\n3️⃣ Distributor Visit\n4️⃣ Field Visit\n5️⃣ Field Program\n6️⃣ Other\n\n*(संख्या 1-6 या नाम लिखकर भेजें)*`,
+      replyText: `नमस्कार ${firstName} जी 👋 (InnoVeg AI Field Ops)\n\nनई Field Visit दर्ज करने के लिए Visit Type चुनें:\n\n1️⃣ Farmer Visit\n2️⃣ Dealer Visit\n3️⃣ Distributor Visit\n4️⃣ Field Visit\n5️⃣ Field Program\n6️⃣ Other\n\n*(संख्या 1-6 लिखें या 'Punch In' / 'Punch Out' / 'Tour Plan' लिखें)*`,
       currentStep: 'SELECT_VISIT_TYPE',
       quickReplies: [
         '1. Farmer Visit',
@@ -311,42 +661,31 @@ export async function processIncomingWhatsAppMessage(
     await db.clearSession(tenDigit);
 
     const todayCount = todayVisits.length + 1;
-    const target = employee.dailyVisitTarget || 10;
+    // PDF Rule: Daily target is 5 visits
+    const target = 5;
     const remaining = Math.max(0, target - todayCount);
 
     let targetStatus = '';
-    if (remaining === 0) {
-      targetStatus = `🎉 *बधाई हो! आज का Daily Target (${target} Visits) पूरा हो गया है!*`;
+    if (todayCount >= 5) {
+      targetStatus = `🎉 *बधाई हो! आज का Daily Target (${todayCount} Visits) पूरा! Full Day Attendance पक्की! 🟢*`;
+    } else if (todayCount >= 3) {
+      targetStatus = `📌 *आज ${todayCount} Visits पूरी (Half Day 🟡)*\nFull Day के लिए ${remaining} और विजिट करें।`;
     } else {
-      targetStatus = `🎯 आज का Target पूरा करने के लिए *${remaining} Visits* बाकी हैं।`;
+      targetStatus = `📌 आज ${todayCount} Visits पूरी। Full Day (5 Visits) के लिए ${remaining} और आवश्यक हैं।`;
     }
 
-    const confirmationReply = `✅ *VISIT RECORDED SUCCESSFULLY!*
-
-👤 *Officer*: ${employee.name}
-🏷️ *Type*: ${savedVisit.visitType}
-🏢 *Details*: ${savedVisit.entityName} (${savedVisit.village})
-📍 *GPS*: ${lat.toFixed(4)}, ${lng.toFixed(4)} (${isRepeat ? '⚠️ Repeat Location' : '✨ Unique Location'})
-📊 *Today's Visits*: ${todayCount} / ${target}
-
-${targetStatus}
-
-🤖 AI Quality Score: *${aiQualityScore}/100* ✨
-रीयल-टाइम डैशबोर्ड पर रिपोर्ट अपडेट हो गई है! 🚀
-
-_(अगली विजिट दर्ज करने के लिए कभी भी *New Visit* भेजें)_`;
-
     return {
-      replyText: confirmationReply,
-      currentStep: 'CONFIRMED',
+      replyText: `✅ *Field Visit सफलतापूर्वक दर्ज!* (#${todayCount})\n\n🏢 प्रकार: ${visitType}\n👤 नाम: ${entityName}\n📍 गाँव: ${village}\n🚗 पिछली विजिट से दूरी: ${distanceFromPrev} KM\n\n${targetStatus}\n\nअगली विजिट दर्ज करने के लिए *New Visit* भेजें या शाम को *Punch Out* करें।`,
+      currentStep: 'START',
+      quickReplies: ['New Visit', 'Punch Out', 'Menu'],
       recordedVisit: savedVisit,
-      quickReplies: ['New Visit', 'My Summary Today'],
     };
   }
 
+  // Fallback
   return {
-    replyText: `नई Visit दर्ज करने के लिए *New Visit* या *Hi* लिखकर भेजें।`,
+    replyText: `नमस्ते ${firstName} जी। कृपया मुख्य मेनू देखने के लिए *Menu* लिखें या *Punch In* / *New Visit* / *Punch Out* चुनें।`,
     currentStep: 'START',
-    quickReplies: ['New Visit'],
+    quickReplies: ['Punch In', 'New Visit', 'Punch Out'],
   };
 }

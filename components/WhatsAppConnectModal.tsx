@@ -1,7 +1,20 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Copy, Check, Send, MapPin, Camera, Sparkles, ExternalLink, ShieldCheck, X } from 'lucide-react';
+import {
+  MessageSquare,
+  Copy,
+  Check,
+  Send,
+  ShieldCheck,
+  X,
+  Clock,
+  Car,
+  FileText,
+  MapPin,
+  CheckCircle2,
+  AlertTriangle,
+} from 'lucide-react';
 
 interface WhatsAppConnectModalProps {
   onClose: () => void;
@@ -11,19 +24,36 @@ interface WhatsAppConnectModalProps {
 export const WhatsAppConnectModal: React.FC<WhatsAppConnectModalProps> = ({ onClose, onVisitSuccess }) => {
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [copiedN8n, setCopiedN8n] = useState(false);
-  const [copiedToken, setCopiedToken] = useState(false);
   const [originUrl, setOriginUrl] = useState('');
 
-  // Test form state
+  // Active testing tab
+  const [activeTestTab, setActiveTestTab] = useState<'tour_plan' | 'punch_in' | 'visit' | 'punch_out' | 'n8n_docs'>('punch_in');
+
+  // Common Officer State
   const [testPhone, setTestPhone] = useState('9011939722');
   const [testOfficerName, setTestOfficerName] = useState('Pavan Rodge');
+
+  // Action Specific States
+  // 1. Tour Plan
+  const [testTourPlan, setTestTourPlan] = useState('Planned 4 Farmer visits in Chandur and 2 Dealer visits at Kisan Krishi Kendra.');
+
+  // 2. Punch-In
+  const [testStartKm, setTestStartKm] = useState('25000');
+  const [testPunchInPhoto, setTestPunchInPhoto] = useState('https://images.unsplash.com/photo-1542282088-72c9c27ed0cd?auto=format&fit=crop&w=800&q=80');
+
+  // 3. Visit
   const [testVisitType, setTestVisitType] = useState('Dealer Visit');
   const [testEntity, setTestEntity] = useState('Shiv Shakti Krishi Kendra');
   const [testVillage, setTestVillage] = useState('Amravati');
   const [testDistrict, setTestDistrict] = useState('Amravati');
-  const [testLat, setTestLat] = useState('21.7709');
-  const [testLng, setTestLng] = useState('78.2575');
+  const [testLat, setTestLat] = useState('20.9320');
+  const [testLng, setTestLng] = useState('77.7523');
   const [testRemarks, setTestRemarks] = useState('Innoveg 108 – 20 Bags Requirement');
+
+  // 4. Punch-Out
+  const [testEndKm, setTestEndKm] = useState('25085');
+  const [testPunchOutPhoto, setTestPunchOutPhoto] = useState('https://images.unsplash.com/photo-1542282088-72c9c27ed0cd?auto=format&fit=crop&w=800&q=80');
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resultMsg, setResultMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -33,9 +63,8 @@ export const WhatsAppConnectModal: React.FC<WhatsAppConnectModalProps> = ({ onCl
     }
   }, []);
 
-  const webhookUrl = `${originUrl || 'https://innoveg-field-reporting.vercel.app'}/api/whatsapp/webhook`;
-  const n8nUrl = `${originUrl || 'https://innoveg-field-reporting.vercel.app'}/api/webhooks/n8n`;
-  const verifyToken = 'innoveg_secret_token';
+  const n8nUrl = `${originUrl || 'https://innoveg.vercel.app'}/api/webhooks/n8n`;
+  const webhookUrl = `${originUrl || 'https://innoveg.vercel.app'}/api/whatsapp/webhook`;
 
   const copyToClipboard = (text: string, setter: (val: boolean) => void) => {
     navigator.clipboard.writeText(text);
@@ -43,52 +72,88 @@ export const WhatsAppConnectModal: React.FC<WhatsAppConnectModalProps> = ({ onCl
     setTimeout(() => setter(false), 2000);
   };
 
-  const handleSimulateWebhook = async (e: React.FormEvent) => {
+  const handleTestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setResultMsg(null);
 
     try {
+      let payload: any = {
+        employeeMobile: testPhone,
+        employeeName: testOfficerName,
+      };
+
+      if (activeTestTab === 'tour_plan') {
+        payload = {
+          ...payload,
+          action: 'tour_plan',
+          tourPlan: testTourPlan,
+        };
+      } else if (activeTestTab === 'punch_in') {
+        payload = {
+          ...payload,
+          action: 'punch_in',
+          startKm: parseFloat(testStartKm) || 25000,
+          meterPhotoUrl: testPunchInPhoto,
+          latitude: parseFloat(testLat) || 20.9320,
+          longitude: parseFloat(testLng) || 77.7523,
+          locationName: `${testVillage}, ${testDistrict}`,
+        };
+      } else if (activeTestTab === 'punch_out') {
+        payload = {
+          ...payload,
+          action: 'punch_out',
+          endKm: parseFloat(testEndKm) || 25085,
+          meterPhotoUrl: testPunchOutPhoto,
+          latitude: parseFloat(testLat) || 20.9320,
+          longitude: parseFloat(testLng) || 77.7523,
+          locationName: `${testVillage}, ${testDistrict}`,
+        };
+      } else {
+        // Visit
+        payload = {
+          ...payload,
+          action: 'visit',
+          visitType: testVisitType,
+          entityName: testEntity,
+          village: testVillage,
+          district: testDistrict,
+          latitude: parseFloat(testLat) || 20.9320,
+          longitude: parseFloat(testLng) || 77.7523,
+          remarksBooking: testRemarks,
+          photoUrl: 'https://images.unsplash.com/photo-1592417817098-8f3d6eb22513?w=600&auto=format&fit=crop&q=80',
+          aiAnalysis: {
+            qualityScore: 92,
+            isBlur: false,
+            fieldVisible: testVisitType.includes('Farmer'),
+            personVisible: true,
+            brandingVisible: testVisitType.includes('Dealer'),
+            visitTypeMatch: true,
+            summaryHindi: `✅ ${testVisitType} सत्यापित। स्थान: ${testVillage}`,
+            summaryEnglish: `${testVisitType} verified at ${testVillage}.`,
+            tags: [testVisitType, 'WhatsApp Live Test', 'Verified GPS'],
+          },
+        };
+      }
+
       const res = await fetch('/api/webhooks/n8n', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer n8n_secret',
         },
-        body: JSON.stringify({
-          employeeMobile: testPhone,
-          employeeName: testOfficerName,
-          visitType: testVisitType,
-          entityName: testEntity,
-          village: testVillage,
-          district: testDistrict,
-          latitude: parseFloat(testLat) || 21.7709,
-          longitude: parseFloat(testLng) || 78.2575,
-          remarksBooking: testRemarks,
-          photoUrl: 'https://images.unsplash.com/photo-1592417817098-8f3d6eb22513?w=600&auto=format&fit=crop&q=80',
-          aiAnalysis: {
-            qualityScore: 94,
-            isBlur: false,
-            fieldVisible: testVisitType.includes('Farmer'),
-            personVisible: true,
-            brandingVisible: testVisitType.includes('Dealer'),
-            visitTypeMatch: true,
-            summaryHindi: `✅ ${testVisitType} सफलतापूर्वक सत्यापित। स्थान: ${testVillage}`,
-            summaryEnglish: `${testVisitType} verified at ${testVillage}.`,
-            tags: [testVisitType, 'WhatsApp Live Test', 'Verified GPS'],
-          },
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
       if (data.success) {
         setResultMsg({
           type: 'success',
-          text: `🎉 Visit successfully recorded for ${testOfficerName}! Check the Live Map and Feed stream.`,
+          text: `🎉 Successfully recorded ${activeTestTab.replace('_', ' ').toUpperCase()} for ${testOfficerName}! Check the corresponding tab.`,
         });
         if (onVisitSuccess) onVisitSuccess();
       } else {
-        setResultMsg({ type: 'error', text: data.error || 'Failed to simulate visit' });
+        setResultMsg({ type: 'error', text: data.error || 'Failed to simulate action' });
       }
     } catch (err: any) {
       setResultMsg({ type: 'error', text: err.message || 'Network error' });
@@ -99,252 +164,357 @@ export const WhatsAppConnectModal: React.FC<WhatsAppConnectModalProps> = ({ onCl
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl max-w-3xl w-full overflow-hidden shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]">
+      <div className="bg-white rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col">
         {/* Header */}
-        <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-emerald-900 via-emerald-800 to-slate-900 text-white">
+        <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-900 text-white">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600/50 border border-emerald-400/40 flex items-center justify-center font-bold">
-              <MessageSquare className="w-5 h-5 text-emerald-300" />
+            <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              <MessageSquare className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="font-bold text-base sm:text-lg">WhatsApp Webhook & Integration Hub</h2>
-              <p className="text-xs text-emerald-200">Connect Meta WhatsApp Cloud API, n8n, or run test messages</p>
+              <h2 className="text-base sm:text-lg font-bold">WhatsApp Automation & n8n Test Suite</h2>
+              <p className="text-xs text-slate-400">
+                Simulate the 4 daily lifecycle stages (Tour Plan, Punch-In, Field Visits, Punch-Out)
+              </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-emerald-200 hover:text-white hover:bg-emerald-800/60 rounded-lg transition-colors"
+            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Body */}
-        <div className="p-5 overflow-y-auto space-y-6 text-xs text-slate-700">
-          {/* Webhook URLs for Meta and n8n */}
-          <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-            <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              1. Webhook Endpoints for Live WhatsApp
-            </h3>
+        {/* Tab Selector */}
+        <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto text-xs">
+          <button
+            onClick={() => setActiveTestTab('tour_plan')}
+            className={`px-3 py-1.5 rounded-lg font-bold whitespace-nowrap transition-all ${
+              activeTestTab === 'tour_plan' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            1. Tour Plan (6 AM)
+          </button>
+          <button
+            onClick={() => setActiveTestTab('punch_in')}
+            className={`px-3 py-1.5 rounded-lg font-bold whitespace-nowrap transition-all ${
+              activeTestTab === 'punch_in' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            2. Punch-In (Before 10 AM)
+          </button>
+          <button
+            onClick={() => setActiveTestTab('visit')}
+            className={`px-3 py-1.5 rounded-lg font-bold whitespace-nowrap transition-all ${
+              activeTestTab === 'visit' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            3. Field Visit (Min 5)
+          </button>
+          <button
+            onClick={() => setActiveTestTab('punch_out')}
+            className={`px-3 py-1.5 rounded-lg font-bold whitespace-nowrap transition-all ${
+              activeTestTab === 'punch_out' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            4. Punch-Out & KM Audit
+          </button>
+          <button
+            onClick={() => setActiveTestTab('n8n_docs')}
+            className={`px-3 py-1.5 rounded-lg font-bold whitespace-nowrap transition-all ${
+              activeTestTab === 'n8n_docs' ? 'bg-emerald-700 text-white shadow-sm' : 'text-emerald-800 bg-emerald-50 hover:bg-emerald-100'
+            }`}
+          >
+            n8n Webhook Specs
+          </button>
+        </div>
 
-            {/* Direct Meta Cloud API Webhook */}
-            <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-slate-600">
-                Meta WhatsApp Cloud API Callback URL (GET verification & POST messages):
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={webhookUrl}
-                  className="flex-1 px-3 py-1.5 font-mono text-xs bg-white border border-slate-200 rounded-lg text-slate-800 select-all"
-                />
-                <button
-                  type="button"
-                  onClick={() => copyToClipboard(webhookUrl, setCopiedWebhook)}
-                  className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg font-medium text-slate-700 flex items-center gap-1.5"
+        {/* Body Content */}
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1">
+          {activeTestTab !== 'n8n_docs' ? (
+            <form onSubmit={handleTestSubmit} className="space-y-4 text-xs">
+              {/* Officer Selector Row */}
+              <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Field Officer Name</label>
+                  <input
+                    type="text"
+                    value={testOfficerName}
+                    onChange={(e) => setTestOfficerName(e.target.value)}
+                    required
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Mobile (10 Digits)</label>
+                  <input
+                    type="text"
+                    value={testPhone}
+                    onChange={(e) => setTestPhone(e.target.value)}
+                    required
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Action 1: Tour Plan */}
+              {activeTestTab === 'tour_plan' && (
+                <div className="space-y-2">
+                  <label className="font-bold text-slate-700 block">Today's 06:00 AM Tour Plan Text</label>
+                  <textarea
+                    rows={3}
+                    value={testTourPlan}
+                    onChange={(e) => setTestTourPlan(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs"
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    Officers submit their planned villages, farmers, and dealers.
+                  </p>
+                </div>
+              )}
+
+              {/* Action 2: Morning Punch-In */}
+              {activeTestTab === 'punch_in' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="font-bold text-slate-700 block mb-1">Starting Odometer KM</label>
+                      <input
+                        type="number"
+                        value={testStartKm}
+                        onChange={(e) => setTestStartKm(e.target.value)}
+                        required
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-bold text-slate-700 block mb-1">Punch-In GPS Location</label>
+                      <input
+                        type="text"
+                        value={`${testLat}, ${testLng}`}
+                        onChange={(e) => {
+                          const [lat, lng] = e.target.value.split(',');
+                          if (lat) setTestLat(lat.trim());
+                          if (lng) setTestLng(lng.trim());
+                        }}
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Vehicle Meter Photo URL</label>
+                    <input
+                      type="url"
+                      value={testPunchInPhoto}
+                      onChange={(e) => setTestPunchInPhoto(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono"
+                    />
+                  </div>
+                  <div className="p-2.5 bg-emerald-50 rounded-lg border border-emerald-200 text-[11px] text-emerald-800">
+                    Rule: Punch-In before 10:00 AM is marked <strong>On-Time</strong>; after 10:00 AM is flagged <strong>Late Mark</strong>.
+                  </div>
+                </div>
+              )}
+
+              {/* Action 3: Field Visit */}
+              {activeTestTab === 'visit' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="font-bold text-slate-700 block mb-1">Visit Type</label>
+                      <select
+                        value={testVisitType}
+                        onChange={(e) => setTestVisitType(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+                      >
+                        <option value="Farmer Visit">Farmer Visit</option>
+                        <option value="Dealer Visit">Dealer Visit</option>
+                        <option value="Distributor Visit">Distributor Visit</option>
+                        <option value="Field Visit">Field Visit</option>
+                        <option value="Field Program">Field Program</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="font-bold text-slate-700 block mb-1">Entity / Farmer Name</label>
+                      <input
+                        type="text"
+                        value={testEntity}
+                        onChange={(e) => setTestEntity(e.target.value)}
+                        required
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="font-bold text-slate-700 block mb-1">Village / Territory</label>
+                      <input
+                        type="text"
+                        value={testVillage}
+                        onChange={(e) => setTestVillage(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-bold text-slate-700 block mb-1">Booking Remarks</label>
+                      <input
+                        type="text"
+                        value={testRemarks}
+                        onChange={(e) => setTestRemarks(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Action 4: Punch-Out & KM Audit */}
+              {activeTestTab === 'punch_out' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="font-bold text-slate-700 block mb-1">Evening Closing Meter KM</label>
+                      <input
+                        type="number"
+                        value={testEndKm}
+                        onChange={(e) => setTestEndKm(e.target.value)}
+                        required
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-bold text-slate-700 block mb-1">Closing Meter Photo URL</label>
+                      <input
+                        type="url"
+                        value={testPunchOutPhoto}
+                        onChange={(e) => setTestPunchOutPhoto(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono"
+                      />
+                    </div>
+                  </div>
+                  <div className="p-2.5 bg-amber-50 rounded-lg border border-amber-200 text-[11px] text-amber-900">
+                    Rule: Difference $\le$ 15 KM between Odometer and GPS Route is <strong>Auto-Approved</strong>. Greater than 15 KM is queued for <strong>Manager Review</strong>.
+                  </div>
+                </div>
+              )}
+
+              {/* Result message */}
+              {resultMsg && (
+                <div
+                  className={`p-3 rounded-lg border font-medium ${
+                    resultMsg.type === 'success'
+                      ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                      : 'bg-rose-100 text-rose-900 border-rose-300'
+                  }`}
                 >
-                  {copiedWebhook ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  {copiedWebhook ? 'Copied' : 'Copy'}
+                  {resultMsg.text}
+                </div>
+              )}
+
+              {/* Submit Button */}
+              <div className="flex justify-end pt-2">
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold rounded-lg shadow-sm transition-all"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>{isSubmitting ? 'Posting...' : `Simulate ${activeTestTab.replace('_', ' ').toUpperCase()}`}</span>
                 </button>
               </div>
-            </div>
+            </form>
+          ) : (
+            /* n8n Webhook Documentation */
+            <div className="space-y-4 text-xs">
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-800">Your Unified n8n Webhook URL:</span>
+                  <button
+                    onClick={() => copyToClipboard(n8nUrl, setCopiedN8n)}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-900"
+                  >
+                    {copiedN8n ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedN8n ? 'Copied' : 'Copy URL'}</span>
+                  </button>
+                </div>
+                <code className="block p-2 bg-slate-900 text-emerald-400 font-mono text-[11px] rounded select-all break-all">
+                  {n8nUrl}
+                </code>
+              </div>
 
-            {/* Verify Token */}
-            <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-slate-600">Meta Webhook Verify Token:</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={verifyToken}
-                  className="w-64 px-3 py-1.5 font-mono text-xs bg-white border border-slate-200 rounded-lg text-slate-800 select-all"
-                />
-                <button
-                  type="button"
-                  onClick={() => copyToClipboard(verifyToken, setCopiedToken)}
-                  className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg font-medium text-slate-700 flex items-center gap-1.5"
-                >
-                  {copiedToken ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  {copiedToken ? 'Copied' : 'Copy'}
-                </button>
+              <div className="space-y-3">
+                <h4 className="font-bold text-slate-900">Payload Samples for n8n HTTP Request Node:</h4>
+
+                <div>
+                  <span className="font-bold text-slate-700 block mb-1">1. Tour Plan Payload:</span>
+                  <pre className="p-2.5 bg-slate-900 text-slate-100 font-mono text-[11px] rounded overflow-x-auto">
+{`{
+  "action": "tour_plan",
+  "employeeMobile": "9011939722",
+  "tourPlan": "Varud village 3 farmers, 2 dealers"
+}`}
+                  </pre>
+                </div>
+
+                <div>
+                  <span className="font-bold text-slate-700 block mb-1">2. Morning Punch-In Payload:</span>
+                  <pre className="p-2.5 bg-slate-900 text-slate-100 font-mono text-[11px] rounded overflow-x-auto">
+{`{
+  "action": "punch_in",
+  "employeeMobile": "9011939722",
+  "startKm": 25000,
+  "meterPhotoUrl": "https://example.com/odometer.jpg",
+  "latitude": 20.9320,
+  "longitude": 77.7523,
+  "locationName": "Amravati"
+}`}
+                  </pre>
+                </div>
+
+                <div>
+                  <span className="font-bold text-slate-700 block mb-1">3. Field Visit Payload:</span>
+                  <pre className="p-2.5 bg-slate-900 text-slate-100 font-mono text-[11px] rounded overflow-x-auto">
+{`{
+  "action": "visit",
+  "employeeMobile": "9011939722",
+  "visitType": "Farmer Visit",
+  "entityName": "Rameshwar Patel",
+  "village": "Dunawa",
+  "district": "Amravati",
+  "latitude": 20.9320,
+  "longitude": 77.7523,
+  "photoUrl": "https://example.com/visit.jpg",
+  "remarksBooking": "10 Bags booked"
+}`}
+                  </pre>
+                </div>
+
+                <div>
+                  <span className="font-bold text-slate-700 block mb-1">4. Evening Punch-Out Payload:</span>
+                  <pre className="p-2.5 bg-slate-900 text-slate-100 font-mono text-[11px] rounded overflow-x-auto">
+{`{
+  "action": "punch_out",
+  "employeeMobile": "9011939722",
+  "endKm": 25085,
+  "meterPhotoUrl": "https://example.com/meter_evening.jpg",
+  "latitude": 20.9320,
+  "longitude": 77.7523
+}`}
+                  </pre>
+                </div>
               </div>
             </div>
-
-            {/* n8n Webhook URL */}
-            <div className="space-y-1 pt-1 border-t border-slate-200">
-              <label className="text-[11px] font-semibold text-slate-600">n8n Automation Inbound Webhook URL:</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={n8nUrl}
-                  className="flex-1 px-3 py-1.5 font-mono text-xs bg-white border border-slate-200 rounded-lg text-slate-800 select-all"
-                />
-                <button
-                  type="button"
-                  onClick={() => copyToClipboard(n8nUrl, setCopiedN8n)}
-                  className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg font-medium text-slate-700 flex items-center gap-1.5"
-                >
-                  {copiedN8n ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  {copiedN8n ? 'Copied' : 'Copy'}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Test WhatsApp Visit Submission Form */}
-          <form onSubmit={handleSimulateWebhook} className="space-y-3 bg-emerald-50/50 p-4 rounded-xl border border-emerald-200">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-sm text-emerald-950 flex items-center gap-2">
-                <Send className="w-4 h-4 text-emerald-600" />
-                2. Test Live WhatsApp Visit Submission
-              </h3>
-              <span className="text-[11px] text-emerald-700 font-medium">Instantly pushes a visit to dashboard</span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">Officer Phone</label>
-                <input
-                  type="text"
-                  required
-                  value={testPhone}
-                  onChange={(e) => setTestPhone(e.target.value)}
-                  placeholder="e.g. 9826012345"
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">Officer Name</label>
-                <input
-                  type="text"
-                  required
-                  value={testOfficerName}
-                  onChange={(e) => setTestOfficerName(e.target.value)}
-                  placeholder="Officer name"
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">Visit Type</label>
-                <select
-                  value={testVisitType}
-                  onChange={(e) => setTestVisitType(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-medium text-slate-800"
-                >
-                  <option value="Farmer Visit">Farmer Visit</option>
-                  <option value="Dealer Visit">Dealer Visit</option>
-                  <option value="Distributor Visit">Distributor Visit</option>
-                  <option value="Field Visit">Field Visit</option>
-                  <option value="Field Program">Field Program</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">Entity / Dealer / Farmer</label>
-                <input
-                  type="text"
-                  required
-                  value={testEntity}
-                  onChange={(e) => setTestEntity(e.target.value)}
-                  placeholder="e.g. Shiv Shakti Krishi"
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">Village / Town</label>
-                <input
-                  type="text"
-                  required
-                  value={testVillage}
-                  onChange={(e) => setTestVillage(e.target.value)}
-                  placeholder="e.g. Multai"
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">District</label>
-                <input
-                  type="text"
-                  required
-                  value={testDistrict}
-                  onChange={(e) => setTestDistrict(e.target.value)}
-                  placeholder="e.g. Betul"
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">Latitude</label>
-                <input
-                  type="text"
-                  value={testLat}
-                  onChange={(e) => setTestLat(e.target.value)}
-                  placeholder="21.7709"
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-[11px]"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">Longitude</label>
-                <input
-                  type="text"
-                  value={testLng}
-                  onChange={(e) => setTestLng(e.target.value)}
-                  placeholder="78.2575"
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-[11px]"
-                />
-              </div>
-
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">Remarks / Booking</label>
-                <input
-                  type="text"
-                  value={testRemarks}
-                  onChange={(e) => setTestRemarks(e.target.value)}
-                  placeholder="e.g. 20 Bags booked"
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
-                />
-              </div>
-            </div>
-
-            {resultMsg && (
-              <div
-                className={`p-3 rounded-lg border font-medium ${
-                  resultMsg.type === 'success'
-                    ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
-                    : 'bg-rose-100 text-rose-900 border-rose-300'
-                }`}
-              >
-                {resultMsg.text}
-              </div>
-            )}
-
-            <div className="flex justify-end pt-1">
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold rounded-lg shadow-sm transition-all"
-              >
-                <Send className="w-4 h-4" />
-                <span>{isSubmitting ? 'Posting Visit...' : 'Send Test WhatsApp Visit'}</span>
-              </button>
-            </div>
-          </form>
+          )}
         </div>
 
         {/* Footer */}
-        <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
-          <span className="text-xs text-slate-500">Live Auto-Polling refreshes every 4s</span>
+        <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
+          <span>Target: $\ge$5 Visits for Full Day Attendance • $\le$15 KM Difference for Auto-Approval</span>
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg font-medium transition-colors"
+            className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold rounded-lg transition-colors"
           >
             Close
           </button>
