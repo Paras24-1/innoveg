@@ -72,6 +72,7 @@ export const VisitFeed: React.FC<VisitFeedProps> = ({
             <option value="Distributor Visit">Distributor Visit</option>
             <option value="Field Visit">Field Visit</option>
             <option value="Field Program">Field Program</option>
+            <option value="Other Visit">Other Visit</option>
           </select>
         </div>
       </div>
@@ -127,51 +128,50 @@ export const VisitFeed: React.FC<VisitFeedProps> = ({
                     </div>
 
                     <h3 className="font-bold text-slate-900 text-sm truncate group-hover:text-emerald-700">
-                      {visit.entityName || 'Field Visit'}
+                      {visit.contactName || visit.entityName || 'Field Visit'}
                     </h3>
 
-                    <div className="flex items-center gap-3 text-xs text-slate-600 mt-1">
+                    <div className="flex items-center gap-3 text-xs text-slate-600 mt-1 flex-wrap">
                       <span className="flex items-center gap-1">
                         <MapPin className="w-3 h-3 text-slate-400" />
-                        {visit.village || 'Field'}, {visit.district || ''}
+                        {visit.city || visit.village || 'Field'}, {visit.district || ''}
                       </span>
+                      {visit.contactMobile && (
+                        <span className="text-slate-500 font-mono text-[11px]">
+                          📱 {visit.contactMobile}
+                        </span>
+                      )}
                       <span className="font-medium text-slate-700">
                         👤 {visit.employeeName || 'Officer'}
                       </span>
                     </div>
 
-                    {/* Remarks or Booking */}
+                    {/* Compulsory Remarks */}
                     {visit.remarksBooking && (
-                      <p className="text-xs text-slate-600 mt-1.5 bg-white p-2 rounded-lg border border-slate-100 italic">
+                      <p className="text-xs text-slate-700 mt-1.5 bg-white p-2 rounded-lg border border-slate-200">
+                        <span className="font-semibold text-slate-500 text-[10px] uppercase block mb-0.5">Visit Remarks:</span>
                         &ldquo;{visit.remarksBooking}&rdquo;
                       </p>
                     )}
 
-                    {/* AI Analysis Badges */}
+                    {/* Human Verification & Photo Inspect */}
                     <div className="flex items-center gap-2 mt-2 flex-wrap">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           onInspectPhoto(visit);
                         }}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+                        className="inline-flex items-center gap-1 px-2.5 py-0.5 text-[11px] font-semibold rounded-full bg-slate-100 text-slate-800 border border-slate-300 hover:bg-slate-200"
                       >
-                        <Sparkles className="w-3 h-3 text-indigo-500" />
-                        AI Score: {score}/100
+                        📷 Inspect Photo
                       </button>
 
-                      {isBlur ? (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">
-                          ⚠️ Blur Alert
-                        </span>
-                      ) : (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium">
-                          ✓ High Clarity
-                        </span>
-                      )}
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
+                        Human Verified
+                      </span>
 
                       {Number(visit.distanceFromPrevKm || 0) > 0 && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 font-medium">
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium border border-slate-200">
                           +{visit.distanceFromPrevKm} KM travel
                         </span>
                       )}
@@ -195,8 +195,8 @@ export const VisitFeed: React.FC<VisitFeedProps> = ({
                         e.currentTarget.src = DEFAULT_FIELD_PHOTO;
                       }}
                     />
-                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-medium">
-                      AI Inspect
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-bold">
+                      Inspect
                     </div>
                   </div>
                 </div>

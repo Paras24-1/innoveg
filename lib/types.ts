@@ -4,6 +4,7 @@ export type VisitType =
   | 'Distributor Visit'
   | 'Field Visit'
   | 'Field Program'
+  | 'Other Visit'
   | 'Other';
 
 export interface Employee {
@@ -41,6 +42,9 @@ export interface Visit {
   district: string;
   visitType: VisitType;
   entityName: string; // Dealer / Farmer / Program Name
+  contactName?: string;
+  contactMobile?: string;
+  city?: string;
   village: string;
   latitude: number;
   longitude: number;
@@ -49,7 +53,8 @@ export interface Visit {
   remarksBooking: string;
   isRepeatLocation: boolean;
   distanceFromPrevKm: number;
-  aiAnalysis: AIAnalysisResult;
+  humanVerificationStatus?: 'VERIFIED' | 'FLAGGED' | 'PENDING';
+  aiAnalysis?: AIAnalysisResult;
   timestamp: string; // ISO 8601
 }
 
@@ -89,6 +94,8 @@ export interface DailyAttendance {
   totalGpsKm: number;
   kmDifference: number;
   kmApprovalStatus: KMApprovalStatus;
+  kmRate?: number; // ₹3.0 per KM
+  reimbursementAmount?: number; // totalOdometerKm * kmRate
   managerRemarks?: string | null;
 
   // Daily Visits & Performance Attendance Status
@@ -106,6 +113,9 @@ export type BotStep =
   | 'PUNCH_IN_METER_PHOTO'
   | 'PUNCH_IN_KM'
   | 'SELECT_VISIT_TYPE'
+  | 'COLLECT_NAME'
+  | 'COLLECT_MOBILE'
+  | 'COLLECT_CITY'
   | 'COLLECT_DETAILS'
   | 'COLLECT_LOCATION'
   | 'COLLECT_PHOTO'
@@ -155,6 +165,7 @@ export interface DailySummary {
   halfDayCount: number;
   kmAutoApprovedCount: number;
   kmPendingReviewCount: number;
+  totalReimbursementAmount?: number;
 
   topPerformers: {
     employeeName: string;

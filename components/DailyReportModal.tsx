@@ -42,6 +42,7 @@ export const DailyReportModal: React.FC<DailyReportModalProps> = ({
       'Total GPS KM',
       'Evening Meter KM',
       'Total Odometer KM',
+      'Travel Payout (@ ₹3/KM)',
       'KM Difference',
       'Punch-Out Time',
       'Attendance Status',
@@ -62,6 +63,7 @@ export const DailyReportModal: React.FC<DailyReportModalProps> = ({
       a.totalGpsKm,
       a.endKm || 0,
       a.totalOdometerKm,
+      ((a.totalOdometerKm || 0) * 3),
       a.kmDifference,
       `"${a.punchOutTime ? new Date(a.punchOutTime).toLocaleTimeString('en-IN') : 'Pending'}"`,
       `"${a.attendanceStatus}"`,
@@ -185,6 +187,7 @@ export const DailyReportModal: React.FC<DailyReportModalProps> = ({
                         <th className="py-2.5 px-2 text-center">Visits</th>
                         <th className="py-2.5 px-2 text-center">GPS KM</th>
                         <th className="py-2.5 px-2 text-center">Odo KM</th>
+                        <th className="py-2.5 px-2 text-center">Payout (₹3/KM)</th>
                         <th className="py-2.5 px-2 text-center">KM Diff</th>
                         <th className="py-2.5 px-2">Punch-Out</th>
                         <th className="py-2.5 px-3 text-center">Attendance</th>
@@ -219,6 +222,9 @@ export const DailyReportModal: React.FC<DailyReportModalProps> = ({
                           </td>
                           <td className="py-2.5 px-2 text-center font-mono text-slate-700">
                             {att.totalOdometerKm}
+                          </td>
+                          <td className="py-2.5 px-2 text-center font-bold text-emerald-700 bg-emerald-50/50">
+                            ₹{(((att.totalOdometerKm || 0) * 3)).toLocaleString('en-IN')}
                           </td>
                           <td className={`py-2.5 px-2 text-center font-bold font-mono ${att.kmDifference > 15 ? 'text-rose-600' : 'text-slate-700'}`}>
                             {att.kmDifference}

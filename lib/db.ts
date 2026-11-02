@@ -54,6 +54,8 @@ class DatabaseStore {
             "totalGpsKm" DOUBLE PRECISION NOT NULL DEFAULT 0,
             "kmDifference" DOUBLE PRECISION NOT NULL DEFAULT 0,
             "kmApprovalStatus" TEXT NOT NULL DEFAULT 'AUTO_APPROVED',
+            "kmRate" DOUBLE PRECISION NOT NULL DEFAULT 3.0,
+            "reimbursementAmount" DOUBLE PRECISION NOT NULL DEFAULT 0.0,
             "managerRemarks" TEXT,
             "completedVisits" INTEGER NOT NULL DEFAULT 0,
             "attendanceStatus" TEXT NOT NULL DEFAULT 'ABSENT',
@@ -64,6 +66,25 @@ class DatabaseStore {
         await prisma.$executeRawUnsafe(`
           CREATE UNIQUE INDEX IF NOT EXISTS "DailyAttendance_employeeId_date_key" ON "DailyAttendance"("employeeId", "date");
         `);
+        // Add new columns to DailyAttendance & Visit if missing
+        await prisma.$executeRawUnsafe(`
+          ALTER TABLE "DailyAttendance" ADD COLUMN IF NOT EXISTS "kmRate" DOUBLE PRECISION NOT NULL DEFAULT 3.0;
+        `).catch(() => {});
+        await prisma.$executeRawUnsafe(`
+          ALTER TABLE "DailyAttendance" ADD COLUMN IF NOT EXISTS "reimbursementAmount" DOUBLE PRECISION NOT NULL DEFAULT 0.0;
+        `).catch(() => {});
+        await prisma.$executeRawUnsafe(`
+          ALTER TABLE "Visit" ADD COLUMN IF NOT EXISTS "contactName" TEXT;
+        `).catch(() => {});
+        await prisma.$executeRawUnsafe(`
+          ALTER TABLE "Visit" ADD COLUMN IF NOT EXISTS "contactMobile" TEXT;
+        `).catch(() => {});
+        await prisma.$executeRawUnsafe(`
+          ALTER TABLE "Visit" ADD COLUMN IF NOT EXISTS "city" TEXT;
+        `).catch(() => {});
+        await prisma.$executeRawUnsafe(`
+          ALTER TABLE "Visit" ADD COLUMN IF NOT EXISTS "humanVerificationStatus" TEXT NOT NULL DEFAULT 'PENDING';
+        `).catch(() => {});
       }
     } catch (e) {
       console.warn('initDailyAttendanceTable warning:', e);
@@ -277,6 +298,9 @@ class DatabaseStore {
             district: safeVisit.district,
             visitType: safeVisit.visitType,
             entityName: safeVisit.entityName,
+            contactName: safeVisit.contactName || null,
+            contactMobile: safeVisit.contactMobile || null,
+            city: safeVisit.city || null,
             village: safeVisit.village,
             latitude: safeLat,
             longitude: safeLng,
@@ -285,6 +309,7 @@ class DatabaseStore {
             remarksBooking: safeVisit.remarksBooking,
             isRepeatLocation: Boolean(safeVisit.isRepeatLocation),
             distanceFromPrevKm: Number(safeVisit.distanceFromPrevKm) || 0,
+            humanVerificationStatus: safeVisit.humanVerificationStatus || 'PENDING',
             timestamp: safeVisit.timestamp || new Date().toISOString(),
             aiQualityScore: Number(aiAnalysis.qualityScore) || 80,
             aiIsBlur: Boolean(aiAnalysis.isBlur),
@@ -450,10 +475,10 @@ class DatabaseStore {
     const now = new Date();
     const timeStr = params.time || now.toISOString();
 
-    // Check if punch-in is after 10:00 AM local time
-    const hours = now.getHours();
-    const minutes = now.getMinutes();
-    const isLate = hours > 10 || (hours === 10 && minutes > 0);
+    // Check if punch-in is after 10:00 AM IST (UTC + 5:30)
+    const istHours = (now.getUTCHours() + 5 + Math.floor((now.getUTCMinutes() + 30) / 60)) % 24;
+    const istMinutes = (now.getUTCMinutes() + 30) % 60;
+    const isLate = istHours > 10 || (istHours === 10 && istMinutes > 0);
 
     const startKmNum = Number(params.startKm) || 0;
 
@@ -478,6 +503,8 @@ class DatabaseStore {
             punchInMeterPhoto: params.meterPhotoUrl || null,
             startKm: startKmNum,
             isLate,
+            kmRate: 3.0,
+            reimbursementAmount: 0.0,
             attendanceStatus: 'ABSENT',
             kmApprovalStatus: 'AUTO_APPROVED',
           },
@@ -489,6 +516,7 @@ class DatabaseStore {
             punchInMeterPhoto: params.meterPhotoUrl || null,
             startKm: startKmNum,
             isLate,
+            attendanceStatus: isLate ? 'ABSENT' : undefined,
           },
         });
         return record as unknown as DailyAttendance;
@@ -512,6 +540,8 @@ class DatabaseStore {
         punchInMeterPhoto: params.meterPhotoUrl,
         startKm: startKmNum,
         isLate,
+        kmRate: 3.0,
+        reimbursementAmount: 0.0,
         totalOdometerKm: 0,
         totalGpsKm: 0,
         kmDifference: 0,
@@ -528,6 +558,7 @@ class DatabaseStore {
       existing.punchInMeterPhoto = params.meterPhotoUrl;
       existing.startKm = startKmNum;
       existing.isLate = isLate;
+      if (isLate) existing.attendanceStatus = 'ABSENT';
     }
     return existing;
   }
@@ -577,13 +608,19 @@ class DatabaseStore {
     // >= 5 visits: Full Day
     // 3-4 visits: Half Day
     // 0-2 visits: Absent / Review
+    // If Late (>10 AM): Absent per client requirement
     const visitCount = todayVisits.length;
     let attendanceStatus: AttendanceStatus = 'ABSENT';
-    if (visitCount >= 5) {
+    if (currentAtt?.isLate) {
+      attendanceStatus = 'ABSENT';
+    } else if (visitCount >= 5) {
       attendanceStatus = 'FULL_DAY';
     } else if (visitCount >= 3) {
       attendanceStatus = 'HALF_DAY';
     }
+
+    const kmRate = 3.0;
+    const reimbursementAmount = Number((totalOdoKm * kmRate).toFixed(2));
 
     try {
       if (process.env.DATABASE_URL) {
@@ -609,6 +646,8 @@ class DatabaseStore {
             totalGpsKm,
             kmDifference: diff,
             kmApprovalStatus,
+            kmRate,
+            reimbursementAmount,
             completedVisits: visitCount,
             attendanceStatus,
           },
@@ -623,6 +662,8 @@ class DatabaseStore {
             totalGpsKm,
             kmDifference: diff,
             kmApprovalStatus,
+            kmRate,
+            reimbursementAmount,
             completedVisits: visitCount,
             attendanceStatus,
           },
@@ -651,6 +692,8 @@ class DatabaseStore {
         totalGpsKm,
         kmDifference: diff,
         kmApprovalStatus,
+        kmRate,
+        reimbursementAmount,
         completedVisits: visitCount,
         attendanceStatus,
         isLate: false,
@@ -667,6 +710,8 @@ class DatabaseStore {
       existing.totalGpsKm = totalGpsKm;
       existing.kmDifference = diff;
       existing.kmApprovalStatus = kmApprovalStatus;
+      existing.kmRate = kmRate;
+      existing.reimbursementAmount = reimbursementAmount;
       existing.completedVisits = visitCount;
       existing.attendanceStatus = attendanceStatus;
     }
@@ -684,19 +729,23 @@ class DatabaseStore {
     }
     const totalGpsKm = Number(totalGps.toFixed(1));
 
+    const currentAtt = await this.getAttendanceByEmployeeAndDate(employeeId, dateStr);
+    const emp = await this.getEmployeeById(employeeId);
+
     let attendanceStatus: AttendanceStatus = 'ABSENT';
-    if (visitCount >= 5) {
+    if (currentAtt?.isLate) {
+      attendanceStatus = 'ABSENT';
+    } else if (visitCount >= 5) {
       attendanceStatus = 'FULL_DAY';
     } else if (visitCount >= 3) {
       attendanceStatus = 'HALF_DAY';
     }
 
-    const currentAtt = await this.getAttendanceByEmployeeAndDate(employeeId, dateStr);
-    const emp = await this.getEmployeeById(employeeId);
-
     const startKm = currentAtt?.startKm || 0;
     const endKm = currentAtt?.endKm || 0;
     const totalOdoKm = endKm > startKm ? Number((endKm - startKm).toFixed(1)) : (currentAtt?.totalOdometerKm || 0);
+    const kmRate = 3.0;
+    const reimbursementAmount = Number((totalOdoKm * kmRate).toFixed(2));
     const diff = Number(Math.abs(totalOdoKm - totalGpsKm).toFixed(1));
     const kmApprovalStatus: KMApprovalStatus =
       currentAtt?.kmApprovalStatus === 'MANUALLY_APPROVED'
@@ -722,6 +771,8 @@ class DatabaseStore {
             completedVisits: visitCount,
             totalGpsKm,
             totalOdometerKm: totalOdoKm,
+            kmRate,
+            reimbursementAmount,
             kmDifference: diff,
             kmApprovalStatus,
             attendanceStatus,
@@ -729,6 +780,9 @@ class DatabaseStore {
           update: {
             completedVisits: visitCount,
             totalGpsKm,
+            totalOdometerKm: totalOdoKm,
+            kmRate,
+            reimbursementAmount,
             kmDifference: diff,
             kmApprovalStatus,
             attendanceStatus,
@@ -744,6 +798,9 @@ class DatabaseStore {
     if (existing) {
       existing.completedVisits = visitCount;
       existing.totalGpsKm = totalGpsKm;
+      existing.totalOdometerKm = totalOdoKm;
+      existing.kmRate = kmRate;
+      existing.reimbursementAmount = reimbursementAmount;
       existing.kmDifference = diff;
       existing.kmApprovalStatus = kmApprovalStatus;
       existing.attendanceStatus = attendanceStatus;
@@ -755,8 +812,10 @@ class DatabaseStore {
         employeeMobile: emp.mobileNumber,
         date: dateStr,
         isLate: false,
-        totalOdometerKm: 0,
+        totalOdometerKm: totalOdoKm,
         totalGpsKm,
+        kmRate,
+        reimbursementAmount,
         kmDifference: 0,
         kmApprovalStatus: 'AUTO_APPROVED',
         completedVisits: visitCount,
@@ -884,6 +943,10 @@ class DatabaseStore {
 
     return {
       ...v,
+      contactName: v.contactName || null,
+      contactMobile: v.contactMobile || null,
+      city: v.city || null,
+      humanVerificationStatus: v.humanVerificationStatus || 'PENDING',
       aiAnalysis: {
         qualityScore: v.aiQualityScore,
         isBlur: v.aiIsBlur,

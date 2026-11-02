@@ -39,8 +39,9 @@ const VISIT_TYPES: Record<string, VisitType> = {
   '5': 'Field Program',
   'field program': 'Field Program',
   'program': 'Field Program',
-  '6': 'Other',
-  'other': 'Other',
+  '6': 'Other Visit',
+  'other visit': 'Other Visit',
+  'other': 'Other Visit',
 };
 
 export async function processIncomingWhatsAppMessage(
@@ -111,9 +112,9 @@ export async function processIncomingWhatsAppMessage(
     await db.saveSession(session);
 
     return {
-      replyText: `✅ *Tour Plan दर्ज कर लिया गया!*\n\n📝 योजना: ${planText}\n\n⏰ *स्मरण*: कृपया सुबह 10:00 AM से पहले *Punch In* करें। (Punch-In के लिए *Punch In* लिखें या नीचे चुनें)।`,
+      replyText: `✅ *Tour Plan दर्ज कर लिया गया!*\n\n📝 योजना: ${planText}\n\n⚠️ *आवश्यक सूचना*: कृपया सुबह 10:00 AM से पहले *Punch In* करना अनिवार्य है, अन्यथा कंपनी नियमानुसार आपकी अनुपस्थिति (ABSENT) दर्ज की जाएगी।\n\n(Punch-In के लिए *Punch In* बटन दबाएं या लिखें).`,
       currentStep: 'START',
-      quickReplies: ['Punch In', 'New Visit'],
+      quickReplies: ['Punch In'],
     };
   }
 
@@ -227,10 +228,12 @@ export async function processIncomingWhatsAppMessage(
     session.tempVisitData = {};
     await db.saveSession(session);
 
-    const lateStatus = att.isLate ? '⚠️ Late Mark (10:00 AM के बाद)' : '✅ On-Time';
+    const lateStatus = att.isLate
+      ? '🔴 Late Mark (10:00 AM के बाद - अनुपस्थित / ABSENT दर्ज)'
+      : '🟢 On-Time (समय पर)';
 
     return {
-      replyText: `✅ *Morning Punch-In सफल!*\n\n👤 अधिकारी: ${employee.name}\n⏰ समय: ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}\n🚦 स्थिति: ${lateStatus}\n🚗 शुरुआती KM: ${startKm} KM\n📍 स्थान: ${att.punchInLocationName || employee.territory}\n\n🎯 *नियम*: Full Day Attendance के लिए कम से कम 5 Field Visits अनिवार्य हैं।\n\nविजिट शुरू करने के लिए *New Visit* भेजें।`,
+      replyText: `✅ *Morning Punch-In सफल!*\n\n👤 अधिकारी: ${employee.name}\n⏰ समय: ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}\n🚦 स्थिति: ${lateStatus}\n🚗 शुरुआती KM: ${startKm} KM\n📍 स्थान: ${att.punchInLocationName || employee.territory}\n\n🎯 *विज़िट रिपोर्टिंग अनलॉक*: अब आप अपनी फील्ड विज़िट रिपोर्ट कर सकते हैं। Full Day उपस्थिति हेतु कम से कम 5 विज़िट्स अनिवार्य हैं।\n\nविजिट शुरू करने के लिए *New Visit* भेजें।`,
       currentStep: 'START',
       quickReplies: ['New Visit', 'Menu'],
     };
@@ -381,8 +384,10 @@ export async function processIncomingWhatsAppMessage(
         ? 'Half Day (आधा दिन) 🟡'
         : 'Absent / Review 🔴';
 
+    const payout = Math.round(att.totalOdometerKm * 3);
+
     return {
-      replyText: `🏁 *Evening Punch-Out सफल!*\n\n📊 *आज का दैनिक विवरण:*\n👤 अधिकारी: ${employee.name}\n🚗 Odometer KM: ${att.totalOdometerKm} KM\n📍 GPS Tracked KM: ${att.totalGpsKm} KM\n📐 अंतर: ${att.kmDifference} KM (${approvalStatus})\n🎯 कुल Field Visits: ${att.completedVisits}\n🏷️ Attendance Status: *${attText}*\n\nधन्यवाद! आज का कार्य सफलतापूर्वक समाप्त हुआ।`,
+      replyText: `🏁 *Evening Punch-Out सफल!*\n\n📊 *आज का दैनिक विवरण:*\n👤 अधिकारी: ${employee.name}\n🚗 कुल ओडोमीटर KM: ${att.totalOdometerKm} KM\n💰 यात्रा भुगतान (@ ₹3/KM): *₹${payout.toLocaleString('en-IN')}*\n📍 GPS Tracked KM: ${att.totalGpsKm} KM\n📐 अंतर: ${att.kmDifference} KM (${approvalStatus})\n🎯 कुल Field Visits: ${att.completedVisits}\n🏷️ Attendance Status: *${attText}*\n\nधन्यवाद! आज का कार्य सफलतापूर्वक समाप्त हुआ।`,
       currentStep: 'START',
     };
   }
@@ -446,12 +451,25 @@ export async function processIncomingWhatsAppMessage(
     lowerText === 'menu' ||
     lowerText === '0'
   ) {
+    // STRICT CLIENT REQUIREMENT: Punch-In Gatekeeper
+    // Employees CANNOT report visits until they have punched in for today!
+    const todayStr = getTodayDateString();
+    const todayAtt = await db.getAttendanceByEmployeeAndDate(employee.id, todayStr);
+
+    if (!todayAtt || !todayAtt.punchInTime) {
+      return {
+        replyText: `⚠️ *Punch-In आवश्यक है!*\n\n${firstName} जी, फील्ड विजिट रिपोर्ट करने से पहले सुबह 10:00 AM से पहले *Punch In* करना अनिवार्य है।\n\n(कृपया पहले *Punch In* बटन दबाएं और अपनी लाइव लोकेशन व मीटर फोटो भेजें).`,
+        currentStep: 'START',
+        quickReplies: ['Punch In', 'Tour Plan:'],
+      };
+    }
+
     session.currentStep = 'SELECT_VISIT_TYPE';
     session.tempVisitData = {};
     await db.saveSession(session);
 
     return {
-      replyText: `नमस्कार ${firstName} जी 👋 (InnoVeg AI Field Ops)\n\nनई Field Visit दर्ज करने के लिए Visit Type चुनें:\n\n1️⃣ Farmer Visit\n2️⃣ Dealer Visit\n3️⃣ Distributor Visit\n4️⃣ Field Visit\n5️⃣ Field Program\n6️⃣ Other\n\n*(संख्या 1-6 लिखें या 'Punch In' / 'Punch Out' / 'Tour Plan' लिखें)*`,
+      replyText: `नमस्कार ${firstName} जी 👋\n\nनई Field Visit दर्ज करने के लिए Visit Type चुनें:\n\n1️⃣ Farmer Visit\n2️⃣ Dealer Visit\n3️⃣ Distributor Visit\n4️⃣ Field Visit\n5️⃣ Field Program\n6️⃣ Other Visit\n\n*(संख्या 1-6 लिखें या विकल्प चुनें)*`,
       currentStep: 'SELECT_VISIT_TYPE',
       quickReplies: [
         '1. Farmer Visit',
@@ -459,7 +477,7 @@ export async function processIncomingWhatsAppMessage(
         '3. Distributor Visit',
         '4. Field Visit',
         '5. Field Program',
-        '6. Other',
+        '6. Other Visit',
       ],
     };
   }
@@ -473,7 +491,7 @@ export async function processIncomingWhatsAppMessage(
 
     if (!matchedType) {
       return {
-        replyText: `⚠️ कृपया 1 से 6 के बीच मान्य Visit Type चुनें:\n\n1. Farmer Visit\n2. Dealer Visit\n3. Distributor Visit\n4. Field Visit\n5. Field Program\n6. Other`,
+        replyText: `⚠️ कृपया 1 से 6 के बीच मान्य Visit Type चुनें:\n\n1. Farmer Visit\n2. Dealer Visit\n3. Distributor Visit\n4. Field Visit\n5. Field Program\n6. Other Visit`,
         currentStep: 'SELECT_VISIT_TYPE',
         quickReplies: [
           '1. Farmer Visit',
@@ -481,52 +499,80 @@ export async function processIncomingWhatsAppMessage(
           '3. Distributor Visit',
           '4. Field Visit',
           '5. Field Program',
-          '6. Other',
+          '6. Other Visit',
         ],
       };
     }
 
     session.tempVisitData.visitType = matchedType;
-    session.currentStep = 'COLLECT_DETAILS';
+    session.currentStep = 'COLLECT_NAME';
     await db.saveSession(session);
 
-    let detailPrompt = '';
-    if (matchedType === 'Dealer Visit' || matchedType === 'Distributor Visit') {
-      detailPrompt = `📝 *${matchedType} चुना गया*\n\nकृपया Dealer / Distributor का नाम और Village/Town भेजें।\n\nउदाहरण: *Shiv Shakti Krishi Kendra, Multai*`;
-    } else if (matchedType === 'Farmer Visit') {
-      detailPrompt = `📝 *Farmer Visit चुना गया*\n\nकृपया Farmer का नाम और गाँव भेजें।\n\nउदाहरण: *Rameshwar Patel, Dunawa*`;
-    } else if (matchedType === 'Field Program') {
-      detailPrompt = `📝 *Field Program चुना गया*\n\nकृपया Program का विषय और गाँव/स्थान भेजें।\n\nउदाहरण: *Crop Demo Meeting, Masod*`;
-    } else {
-      detailPrompt = `📝 *${matchedType} चुना गया*\n\nकृपया संबंधित व्यक्ति/स्थान और गाँव का नाम भेजें।`;
-    }
+    const typeLabel = matchedType === 'Dealer Visit' ? 'Dealer का नाम' : (matchedType === 'Farmer Visit' ? 'Farmer का नाम' : 'संबंधित व्यक्ति / संस्था का नाम');
 
     return {
-      replyText: detailPrompt,
-      currentStep: 'COLLECT_DETAILS',
+      replyText: `📝 *${matchedType} चुना गया*\n\n1️⃣ कृपया *${typeLabel}* लिखकर भेजें।\n\n(उदा: Shiv Shakti Krishi Kendra / Rameshwar Patel)`,
+      currentStep: 'COLLECT_NAME',
     };
   }
 
-  // Step 2: Collecting Entity Name & Village
-  if (session.currentStep === 'COLLECT_DETAILS') {
+  // Step 2A: Collecting Name
+  if (session.currentStep === 'COLLECT_NAME') {
     if (!text || text.length < 2) {
       return {
-        replyText: `कृपया मान्य नाम और गाँव भेजें (कम से कम 2 अक्षर).\n\nउदाहरण: *Shiv Shakti Krishi Kendra, Multai*`,
-        currentStep: 'COLLECT_DETAILS',
+        replyText: `⚠️ कृपया मान्य नाम भेजें (कम से कम 2 अक्षर).\n\n(उदा: Shiv Shakti Krishi Kendra)`,
+        currentStep: 'COLLECT_NAME',
       };
     }
 
-    const parts = text.split(',');
-    const entityName = parts[0].trim();
-    const village = parts.length > 1 ? parts.slice(1).join(',').trim() : (employee.territory || 'Field');
+    session.tempVisitData.entityName = text.trim();
+    session.currentStep = 'COLLECT_MOBILE';
+    await db.saveSession(session);
 
-    session.tempVisitData.entityName = entityName;
-    session.tempVisitData.village = village;
+    return {
+      replyText: `👤 नाम दर्ज: *${text.trim()}*\n\n2️⃣ कृपया इनका *Contact Mobile Number* (10 अंकों का मोबाइल नंबर) भेजें।`,
+      currentStep: 'COLLECT_MOBILE',
+    };
+  }
+
+  // Step 2B: Collecting Mobile Number
+  if (session.currentStep === 'COLLECT_MOBILE') {
+    const cleanNum = text.replace(/[^0-9]/g, '');
+    const mobileNum = cleanNum.length > 10 ? cleanNum.slice(-10) : cleanNum;
+
+    if (!mobileNum || mobileNum.length < 10) {
+      return {
+        replyText: `⚠️ कृपया 10 अंकों का मान्य मोबाइल नंबर भेजें (जैसे 9876543210).`,
+        currentStep: 'COLLECT_MOBILE',
+      };
+    }
+
+    session.tempVisitData.remarksBooking = `Mobile: ${mobileNum}`;
+    session.currentStep = 'COLLECT_CITY';
+    await db.saveSession(session);
+
+    return {
+      replyText: `📱 मोबाइल नंबर दर्ज: *${mobileNum}*\n\n3️⃣ कृपया *City / Town / Village* (शहर या गाँव का नाम) भेजें।\n\n(उदा: Multai / Dunawa)`,
+      currentStep: 'COLLECT_CITY',
+    };
+  }
+
+  // Step 2C: Collecting City / Village
+  if (session.currentStep === 'COLLECT_CITY') {
+    if (!text || text.length < 2) {
+      return {
+        replyText: `⚠️ कृपया मान्य शहर या गाँव का नाम भेजें (कम से कम 2 अक्षर).`,
+        currentStep: 'COLLECT_CITY',
+      };
+    }
+
+    const city = text.trim();
+    session.tempVisitData.village = city;
     session.currentStep = 'COLLECT_LOCATION';
     await db.saveSession(session);
 
     return {
-      replyText: `📍 *स्थान दर्ज*: ${entityName} (${village})\n\nअब कृपया WhatsApp से अपनी 📌 **Current Location** शेयर करें।\n\n*(WhatsApp 📎 Attachment -> Location चुनें या Latitude, Longitude लिखें)*`,
+      replyText: `🏘️ शहर/गाँव दर्ज: *${city}*\n\n📍 अब कृपया WhatsApp से अपनी 📌 **Current Location (GPS)** शेयर करें।\n\n*(WhatsApp 📎 Attachment -> Location भेजें)*`,
       currentStep: 'COLLECT_LOCATION',
       requiresLocation: true,
     };
@@ -567,41 +613,44 @@ export async function processIncomingWhatsAppMessage(
     await db.saveSession(session);
 
     return {
-      replyText: `📍 *GPS लोकेशन प्राप्त हुई*: ${lat.toFixed(4)}, ${lng.toFixed(4)}\n\n📷 अब Visit की **Live Photo** भेजें (कैमरे से फोटो खींचकर भेजें या 'Skip' लिखें).`,
+      replyText: `📍 *GPS लोकेशन प्राप्त हुई*: ${lat.toFixed(4)}, ${lng.toFixed(4)}\n\n📷 अब Visit की **Live Photo** भेजें (कैमरे से फोटो खींचकर भेजें).`,
       currentStep: 'COLLECT_PHOTO',
       requiresPhoto: true,
-      quickReplies: ['Skip'],
     };
   }
 
-  // Step 4: Collecting Photo
+  // Step 4: Collecting Photo (Zero AI analysis)
   if (session.currentStep === 'COLLECT_PHOTO') {
-    const isSkip = lowerText === 'skip' || lowerText === 'none' || lowerText === 'छोड़ें';
     const photoUrl = msg.photoUrl || (text.startsWith('http') ? text : undefined);
 
-    if (!photoUrl && !isSkip) {
+    if (!photoUrl) {
       return {
-        replyText: `📷 कृपया Visit की फोटो भेजें या आगे बढ़ने के लिए *Skip* भेजें।`,
+        replyText: `📷 कृपया Visit की फोटो भेजें।`,
         currentStep: 'COLLECT_PHOTO',
         requiresPhoto: true,
-        quickReplies: ['Skip'],
       };
     }
 
-    session.tempVisitData.photoUrl = photoUrl || 'https://images.unsplash.com/photo-1592417817098-8f3d6eb22513?w=600&auto=format&fit=crop&q=80';
+    session.tempVisitData.photoUrl = photoUrl;
     session.currentStep = 'COLLECT_REMARKS';
     await db.saveSession(session);
 
     return {
-      replyText: `📷 फोटो प्राप्त हो गई!\n\nइस Visit के बारे में कोई **Remark, Farmer Requirement या Product Booking** हो तो लिखें।\n\n(कुछ नहीं होने पर *Skip* लिखें)`,
+      replyText: `📷 फोटो प्राप्त हो गई!\n\n📝 *अनिवार्य*: कृपया इस Visit के लिए **Remarks (विज़िट चर्चा या विवरण)** लिखकर भेजें।\n\n*(कंपनी नियमानुसार Remarks देना अनिवार्य है)*`,
       currentStep: 'COLLECT_REMARKS',
-      quickReplies: ['Skip', 'Booking Confirmed', 'Farmer Satisfied', 'Payment Follow-up'],
     };
   }
 
-  // Step 5: Remarks & Saving Visit
+  // Step 5: Compulsory Remarks & Saving Visit
   if (session.currentStep === 'COLLECT_REMARKS') {
-    const remarks = lowerText === 'skip' || lowerText === 'none' ? 'No specific remarks' : text;
+    if (!text || text.length < 3 || lowerText === 'skip' || lowerText === 'none') {
+      return {
+        replyText: `⚠️ *Remarks देना अनिवार्य है!*\n\nकृपया इस विज़िट का विवरण, किसान/डीलर की आवश्यकता या चर्चा के बिंदु लिखें। (Skip मान्य नहीं है).`,
+        currentStep: 'COLLECT_REMARKS',
+      };
+    }
+
+    const remarks = text.trim();
     session.tempVisitData.remarksBooking = remarks;
 
     const lat = Number(session.tempVisitData.latitude) || 21.7709;
@@ -622,10 +671,6 @@ export async function processIncomingWhatsAppMessage(
     const entityName = session.tempVisitData.entityName || 'Field Visit';
     const village = session.tempVisitData.village || employee.territory;
 
-    // Heuristic AI quality analysis
-    const isDealer = visitType.includes('Dealer') || visitType.includes('Distributor');
-    const aiQualityScore = 85 + Math.floor(Math.random() * 12);
-
     const newVisit: Visit = {
       id: `v-${Date.now()}`,
       employeeId: employee.id,
@@ -635,6 +680,9 @@ export async function processIncomingWhatsAppMessage(
       territory: employee.territory,
       visitType,
       entityName,
+      contactName: entityName,
+      contactMobile: session.tempVisitData.remarksBooking?.match(/\d{10}/)?.[0] || '',
+      city: village,
       village,
       latitude: lat,
       longitude: lng,
@@ -643,17 +691,7 @@ export async function processIncomingWhatsAppMessage(
       remarksBooking: remarks,
       isRepeatLocation: isRepeat,
       distanceFromPrevKm: distanceFromPrev,
-      aiAnalysis: {
-        qualityScore: aiQualityScore,
-        isBlur: false,
-        fieldVisible: !isDealer,
-        personVisible: true,
-        brandingVisible: isDealer,
-        visitTypeMatch: true,
-        summaryHindi: `✅ ${visitType} सत्यापित। स्थान: ${village}। AI स्कोर: ${aiQualityScore}/100`,
-        summaryEnglish: `${visitType} verified at ${village}. Remarks: ${remarks}`,
-        tags: [visitType, isDealer ? 'Dealer / Partner' : 'Farmer / Canopy', 'WhatsApp Bot', 'Verified GPS'],
-      },
+      humanVerificationStatus: 'PENDING',
       timestamp: new Date().toISOString(),
     };
 
@@ -661,7 +699,6 @@ export async function processIncomingWhatsAppMessage(
     await db.clearSession(tenDigit);
 
     const todayCount = todayVisits.length + 1;
-    // PDF Rule: Daily target is 5 visits
     const target = 5;
     const remaining = Math.max(0, target - todayCount);
 
@@ -675,7 +712,7 @@ export async function processIncomingWhatsAppMessage(
     }
 
     return {
-      replyText: `✅ *Field Visit सफलतापूर्वक दर्ज!* (#${todayCount})\n\n🏢 प्रकार: ${visitType}\n👤 नाम: ${entityName}\n📍 गाँव: ${village}\n🚗 पिछली विजिट से दूरी: ${distanceFromPrev} KM\n\n${targetStatus}\n\nअगली विजिट दर्ज करने के लिए *New Visit* भेजें या शाम को *Punch Out* करें।`,
+      replyText: `✅ *Field Visit सफलतापूर्वक दर्ज!* (#${todayCount})\n\n🏢 प्रकार: ${visitType}\n👤 नाम: ${entityName}\n🏘️ शहर/गाँव: ${village}\n📝 Remarks: ${remarks}\n🚗 पिछली विजिट से दूरी: ${distanceFromPrev} KM\n\n${targetStatus}\n\nअगली विजिट दर्ज करने के लिए *New Visit* भेजें या शाम को *Punch Out* करें।`,
       currentStep: 'START',
       quickReplies: ['New Visit', 'Punch Out', 'Menu'],
       recordedVisit: savedVisit,

@@ -76,19 +76,30 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, action: 'tour_plan', attendance: att });
     }
 
+    // 2.1 Action: Check Punch-In Status
+    if (action === 'check_punch_in' || action === 'check-punch-in') {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const att = await db.getAttendanceByEmployeeAndDate(employee.id, todayStr);
+      const isPunchedIn = !!(att && att.punchInTime);
+      return NextResponse.json({
+        success: true,
+        action: 'check_punch_in',
+        isPunchedIn,
+        punchInTime: att?.punchInTime || null,
+        isLate: att?.isLate || false,
+        attendanceStatus: att?.attendanceStatus || 'ABSENT'
+      });
+    }
+
     // 3. Action: Morning Punch-In
     if (action === 'punch_in' || action === 'punch-in') {
       let startKm = Number(body.startKm);
       const meterPhoto = body.meterPhotoUrl || body.photoUrl || null;
 
-      // Extract via AI if meter photo provided and startKm missing
-      if (isNaN(startKm) && meterPhoto) {
-        const extracted = await extractOdometerKm(meterPhoto, body.text);
-        if (extracted.km) startKm = extracted.km;
-      }
-
       if (isNaN(startKm) || startKm <= 0) {
-        startKm = 0;
+        // Simple regex fallback from text if KM wasn't passed directly as integer
+        const match = String(body.text || body.body || '').replace(/,/g, '').match(/(\d{3,7}(?:\.\d+)?)/);
+        startKm = match ? parseFloat(match[1]) : 0;
       }
 
       const att = await db.recordPunchIn({
@@ -102,7 +113,14 @@ export async function POST(request: Request) {
         startKm,
       });
 
-      return NextResponse.json({ success: true, action: 'punch_in', attendance: att });
+      return NextResponse.json({
+        success: true,
+        action: 'punch_in',
+        attendance: att,
+        message: att.isLate
+          ? 'Punch-In recorded after 10:00 AM. Marked Absent as per company policy.'
+          : 'Punch-In successful. Visit reporting is now unlocked.'
+      });
     }
 
     // 4. Action: Evening Punch-Out
@@ -110,13 +128,9 @@ export async function POST(request: Request) {
       let endKm = Number(body.endKm);
       const meterPhoto = body.meterPhotoUrl || body.photoUrl || null;
 
-      if (isNaN(endKm) && meterPhoto) {
-        const extracted = await extractOdometerKm(meterPhoto, body.text);
-        if (extracted.km) endKm = extracted.km;
-      }
-
       if (isNaN(endKm) || endKm <= 0) {
-        endKm = 0;
+        const match = String(body.text || body.body || '').replace(/,/g, '').match(/(\d{3,7}(?:\.\d+)?)/);
+        endKm = match ? parseFloat(match[1]) : 0;
       }
 
       const att = await db.recordPunchOut({
@@ -130,10 +144,28 @@ export async function POST(request: Request) {
         endKm,
       });
 
-      return NextResponse.json({ success: true, action: 'punch_out', attendance: att });
+      return NextResponse.json({
+        success: true,
+        action: 'punch_out',
+        attendance: att,
+        totalKm: att.totalOdometerKm,
+        reimbursementPayout: (att.totalOdometerKm || 0) * 3
+      });
     }
 
-    // 5. Action: Visit Recording (Default legacy and explicit)
+    // 5. Action: Visit Recording (Only Allowed AFTER Punch-In!)
+    const todayStr = (body.timestamp ? body.timestamp.split('T')[0] : null) || new Date().toISOString().split('T')[0];
+    const todayAttendance = await db.getAttendanceByEmployeeAndDate(employee.id, todayStr);
+    
+    if (!todayAttendance || !todayAttendance.punchInTime) {
+      return NextResponse.json({
+        success: false,
+        error: 'PUNCH_IN_REQUIRED',
+        message: 'You must Punch-In before reporting any visits. Send Live Location and Start Odometer photo first.',
+        isPunchedIn: false
+      }, { status: 403 });
+    }
+
     if (!body.visitType || body.latitude === undefined || body.longitude === undefined) {
       return NextResponse.json({
         success: false,
@@ -151,6 +183,11 @@ export async function POST(request: Request) {
     const allEmpVisits = await db.getVisitsByEmployee(employee.id);
     const isRepeat = isDuplicateLocation(Number(body.latitude), Number(body.longitude), allEmpVisits, 150);
 
+    const contactName = body.contactName || body.dealerName || body.farmerName || body.entityName || 'Contact';
+    const contactMobile = body.contactMobile || body.dealerMobile || body.farmerMobile || '';
+    const city = body.city || body.dealerCity || body.village || employee.territory;
+    const remarks = String(body.remarks || body.remarksBooking || 'Visit Completed').trim();
+
     const newVisit: Visit = {
       id: `v-${Date.now()}`,
       employeeId: employee.id,
@@ -159,26 +196,19 @@ export async function POST(request: Request) {
       district: employee.district,
       territory: employee.territory,
       visitType: body.visitType,
-      entityName: body.entityName || 'Entity',
-      village: body.village || employee.territory,
+      entityName: contactName,
+      contactName,
+      contactMobile,
+      city,
+      village: city,
       latitude: Number(body.latitude),
       longitude: Number(body.longitude),
-      locationName: body.locationName || `${body.village || employee.territory}, ${employee.district}`,
+      locationName: body.locationName || `${city}, ${employee.district}`,
       photoUrl: body.photoUrl || 'https://images.unsplash.com/photo-1592417817098-8f3d6eb22513?w=600&auto=format&fit=crop&q=80',
-      remarksBooking: body.remarksBooking || 'No specific remarks',
+      remarksBooking: remarks,
       isRepeatLocation: body.isRepeatLocation !== undefined ? Boolean(body.isRepeatLocation) : isRepeat,
       distanceFromPrevKm: body.distanceFromPrevKm !== undefined ? Number(body.distanceFromPrevKm) : distanceFromPrev,
-      aiAnalysis: body.aiAnalysis || {
-        qualityScore: 80,
-        isBlur: false,
-        fieldVisible: true,
-        personVisible: true,
-        brandingVisible: false,
-        visitTypeMatch: true,
-        summaryHindi: 'Processed by n8n',
-        summaryEnglish: 'Processed by n8n',
-        tags: [body.visitType || 'Farmer', 'n8n'],
-      },
+      humanVerificationStatus: 'PENDING',
       timestamp: body.timestamp || new Date().toISOString(),
     };
 

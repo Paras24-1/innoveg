@@ -147,6 +147,7 @@ export const AttendanceTable: React.FC<AttendanceTableProps> = ({
                 <th className="py-3 px-3">Morning Punch-In</th>
                 <th className="py-3 px-3">Evening Punch-Out</th>
                 <th className="py-3 px-3 text-center">Visits Done</th>
+                <th className="py-3 px-3 text-center">Travel & Payout (₹3/KM)</th>
                 <th className="py-3 px-4 text-center">Attendance Status</th>
               </tr>
             </thead>
@@ -193,8 +194,8 @@ export const AttendanceTable: React.FC<AttendanceTableProps> = ({
                             <Clock className="w-3.5 h-3.5 text-slate-500" />
                             <span>{punchInFormatted}</span>
                             {att.isLate ? (
-                              <span className="px-1.5 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 rounded border border-amber-200">
-                                Late
+                              <span className="px-1.5 py-0.5 text-[10px] font-bold bg-rose-100 text-rose-800 rounded border border-rose-200">
+                                Late (&gt;10 AM) - Absent
                               </span>
                             ) : (
                               <span className="px-1.5 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 rounded border border-emerald-200">
@@ -237,6 +238,14 @@ export const AttendanceTable: React.FC<AttendanceTableProps> = ({
                       <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-100 font-bold text-slate-800">
                         <span>{att.completedVisits}</span>
                         <span className="text-slate-400 font-normal">/ 5 target</span>
+                      </div>
+                    </td>
+
+                    {/* Travel & Reimbursement @ ₹3/KM */}
+                    <td className="py-3 px-3 text-center whitespace-nowrap">
+                      <div className="font-bold text-slate-900">{att.totalOdometerKm || 0} KM</div>
+                      <div className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full inline-block mt-0.5 border border-emerald-200">
+                        ₹{(((att.totalOdometerKm || 0) * 3)).toLocaleString('en-IN')}
                       </div>
                     </td>
 

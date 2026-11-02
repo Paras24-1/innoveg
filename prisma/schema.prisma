@@ -58,6 +58,8 @@ model DailyAttendance {
   totalGpsKm           Float    @default(0)
   kmDifference         Float    @default(0)
   kmApprovalStatus     String   @default("AUTO_APPROVED") // AUTO_APPROVED | PENDING_REVIEW | MANUALLY_APPROVED | REJECTED
+  kmRate               Float    @default(3.0) // ₹3 per KM
+  reimbursementAmount  Float    @default(0)   // totalOdometerKm * kmRate
   managerRemarks       String?
 
   // Daily Visits & Performance Attendance Status
@@ -71,35 +73,39 @@ model DailyAttendance {
 }
 
 model Visit {
-  id                 String   @id @default(cuid())
-  employeeId         String
-  employee           Employee @relation(fields: [employeeId], references: [id])
-  employeeName       String
-  employeeMobile     String
-  territory          String
-  district           String
-  visitType          String
-  entityName         String
-  village            String
-  latitude           Float
-  longitude          Float
-  locationName       String
-  photoUrl           String
-  remarksBooking     String
-  isRepeatLocation   Boolean
-  distanceFromPrevKm Float
+  id                      String   @id @default(cuid())
+  employeeId              String
+  employee                Employee @relation(fields: [employeeId], references: [id])
+  employeeName            String
+  employeeMobile          String
+  territory               String
+  district                String
+  visitType               String
+  entityName              String
+  contactName             String?
+  contactMobile           String?
+  city                    String?
+  village                 String
+  latitude                Float
+  longitude               Float
+  locationName            String
+  photoUrl                String
+  remarksBooking          String
+  isRepeatLocation        Boolean
+  distanceFromPrevKm      Float
+  humanVerificationStatus String   @default("PENDING") // PENDING | VERIFIED | FLAGGED
   
-  aiQualityScore     Float
-  aiIsBlur           Boolean
-  aiFieldVisible     Boolean
-  aiPersonVisible    Boolean
-  aiBrandingVisible  Boolean
-  aiVisitTypeMatch   Boolean
-  aiSummaryHindi     String
-  aiSummaryEnglish   String
-  aiTags             String   // Stored as JSON string
+  aiQualityScore          Float    @default(0)
+  aiIsBlur                Boolean  @default(false)
+  aiFieldVisible          Boolean  @default(false)
+  aiPersonVisible         Boolean  @default(false)
+  aiBrandingVisible       Boolean  @default(false)
+  aiVisitTypeMatch        Boolean  @default(false)
+  aiSummaryHindi          String   @default("")
+  aiSummaryEnglish        String   @default("")
+  aiTags                  String   @default("[]") // Stored as JSON string
 
-  timestamp          String 
+  timestamp               String 
 }
 
 model BotSession {

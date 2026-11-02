@@ -21,6 +21,7 @@ export async function generateDailyManagementSummary(targetDateStr?: string): Pr
     'Distributor Visit': 0,
     'Field Visit': 0,
     'Field Program': 0,
+    'Other Visit': 0,
     'Other': 0,
   };
 
@@ -104,6 +105,7 @@ export async function generateDailyManagementSummary(targetDateStr?: string): Pr
   let latePunchInCount = 0;
   let kmAutoApprovedCount = 0;
   let kmPendingReviewCount = 0;
+  let totalReimbursementAmount = 0;
 
   allAttendances.forEach((a) => {
     if (a.attendanceStatus === 'FULL_DAY') fullDayCount++;
@@ -114,6 +116,7 @@ export async function generateDailyManagementSummary(targetDateStr?: string): Pr
     else if (a.kmApprovalStatus === 'AUTO_APPROVED' || a.kmApprovalStatus === 'MANUALLY_APPROVED') {
       kmAutoApprovedCount++;
     }
+    totalReimbursementAmount += (a.reimbursementAmount || (a.totalOdometerKm || 0) * 3);
   });
 
   const presentCount = fullDayCount + halfDayCount;
@@ -135,32 +138,35 @@ export async function generateDailyManagementSummary(targetDateStr?: string): Pr
     halfDayCount,
     kmAutoApprovedCount,
     kmPendingReviewCount,
+    totalReimbursementAmount: Number(totalReimbursementAmount.toFixed(2)),
     topPerformers,
     lowPerformers,
   };
 }
 
 export function formatWhatsAppDailyReportText(summary: DailySummary): string {
+  const payout = summary.totalReimbursementAmount || Math.round(summary.totalEstimatedKm * 3);
   return `📊 *INNOVEG 7 PM DAILY EXECUTIVE PERFORMANCE REPORT*
 📅 *Date:* ${summary.date}
 ━━━━━━━━━━━━━━━━━━━
 👥 *Field Workforce:* ${summary.totalEmployees} Officers
-🟢 *Present (Full Day $\ge$5 Visits):* ${summary.presentCount - (summary.halfDayCount || 0)}
+🟢 *Present (Full Day $\\ge$5 Visits):* ${summary.presentCount - (summary.halfDayCount || 0)}
 🟡 *Half Day (3–4 Visits):* ${summary.halfDayCount || 0}
 🔴 *Absent / Review (0–2 Visits):* ${summary.absentCount}
 ⏰ *Late Punch-In (>10:00 AM):* ${summary.latePunchInCount}
 
-🚗 *Vehicle KM & Odometer Reconciliation:*
+🚗 *Vehicle KM & Travel Reimbursement (@ ₹3/KM):*
 • Total Field Route: ~${summary.totalEstimatedKm} KM
-• Auto-Approved KM ($\le$15 KM diff): ${summary.kmAutoApprovedCount} Officers
+• Travel Reimbursement Payout: ₹${payout.toLocaleString('en-IN')}
+• Auto-Approved KM (≤15 KM diff): ${summary.kmAutoApprovedCount} Officers
 • Pending Manager Review (>15 KM diff): ${summary.kmPendingReviewCount} Officers
 
 🎯 *Field Activity:*
 • Total Visits Recorded: ${summary.totalVisits}
-• Farmer Visits: ${summary.visitsByType['Farmer Visit']}
-• Dealer Visits: ${summary.visitsByType['Dealer Visit']}
-• Distributor Visits: ${summary.visitsByType['Distributor Visit']}
-• Field Programs & Others: ${summary.visitsByType['Field Program'] + summary.visitsByType['Field Visit'] + summary.visitsByType['Other']}
+• Farmer Visits: ${summary.visitsByType['Farmer Visit'] || 0}
+• Dealer Visits: ${summary.visitsByType['Dealer Visit'] || 0}
+• Distributor Visits: ${summary.visitsByType['Distributor Visit'] || 0}
+• Field Programs & Others: ${(summary.visitsByType['Field Program'] || 0) + (summary.visitsByType['Field Visit'] || 0) + (summary.visitsByType['Other Visit'] || 0) + (summary.visitsByType['Other'] || 0)}
 
 🏆 *Top Performing Field Officers:*
 ${summary.topPerformers.map((p, idx) => `${idx + 1}. ${p.employeeName} (${p.district}) - ${p.visitsCount} visits | ${p.travelKm} KM`).join('\n') || 'None recorded'}
