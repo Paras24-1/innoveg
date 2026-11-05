@@ -191,9 +191,7 @@ export async function POST(request: Request) {
     const driftMeters = body.gpsDriftMeters !== undefined && !isNaN(Number(body.gpsDriftMeters)) ? Number(body.gpsDriftMeters) : undefined;
     let verificationStatus: 'VERIFIED' | 'FLAGGED' | 'PENDING' = body.humanVerificationStatus || 'PENDING';
     if (driftMeters !== undefined) {
-      if (driftMeters < 1) {
-        verificationStatus = 'FLAGGED';
-      } else if (driftMeters > 800) {
+      if (driftMeters > 500) {
         verificationStatus = 'FLAGGED';
       } else {
         verificationStatus = 'VERIFIED';

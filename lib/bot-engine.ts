@@ -679,21 +679,20 @@ export async function processIncomingWhatsAppMessage(
     const driftMeters = calculateDistanceMeters(lat1, lng1, verifyLat, verifyLng);
 
     // Two-Point GPS Drift Evaluation:
-    // 1) 0m (or < 1m) = 100% Bit-for-bit identical -> Fake Static Pinned Location (FLAGGED)
-    // 2) > 800m = Excessive drift during a short visit -> Location mismatch (FLAGGED)
-    // 3) 1m to 800m = Natural hardware GPS drift / officer walking around -> VERIFIED!
+    // Consistency check: The officer must remain at the visit location throughout the visit (0m to 500m).
+    // - 0m to 500m = VERIFIED (0m = stationary at desk/counter with cached phone GPS fix; 5-500m = natural drift or walking around farm/shop)
+    // - > 500m = FLAGGED (Excessive movement / teleportation between arrival and departure)
     let verificationStatus: 'VERIFIED' | 'FLAGGED' = 'VERIFIED';
     let driftBadge = '';
 
-    if (driftMeters < 1) {
+    if (driftMeters > 500) {
       verificationStatus = 'FLAGGED';
-      driftBadge = `⚠️ *संदिग्ध (0m Drift)*: दोनों GPS बिल्कुल एक समान हैं। यह स्थिर पिन (Static Pinned Location) दर्शाता है।`;
-    } else if (driftMeters > 800) {
-      verificationStatus = 'FLAGGED';
-      driftBadge = `⚠️ *संदिग्ध (${driftMeters}m Drift)*: विज़िट के दौरान असामान्य अधिक दूरी दर्ज हुई।`;
+      driftBadge = `⚠️ *संदिग्ध (${driftMeters}m Drift)*: विज़िट के दौरान अत्यधिक दूरी अंतर (Location mismatch)`;
     } else {
       verificationStatus = 'VERIFIED';
-      driftBadge = `✅ *GPS सत्यापित (${driftMeters}m natural drift)*: विज़िट वास्तविक है।`;
+      driftBadge = driftMeters === 0
+        ? `✅ *GPS सत्यापित (0m - Same Location)*: विज़िट स्थान प्रमाणित`
+        : `✅ *GPS सत्यापित (${driftMeters}m drift)*: विज़िट प्रमाणित`;
     }
 
     // Retrieve previous visits to calculate distance & repeat location
