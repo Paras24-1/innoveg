@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Visit } from '@/lib/types';
-import { X, Camera, MapPin, User, Phone, CheckCircle2, FileText } from 'lucide-react';
+import { X, Camera, MapPin, User, Phone, CheckCircle2, AlertTriangle, FileText } from 'lucide-react';
 import { formatPhotoUrl, DEFAULT_FIELD_PHOTO } from '@/lib/geo';
 
 interface AiInspectionModalProps {
@@ -104,9 +104,19 @@ export const AiInspectionModal: React.FC<AiInspectionModalProps> = ({ visit, onC
 
               <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
                 <span className="text-slate-500">Verification Status:</span>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 font-bold rounded bg-emerald-100 text-emerald-800 text-[11px]">
-                  <CheckCircle2 className="w-3 h-3" /> Human Verified
-                </span>
+                {visit.humanVerificationStatus === 'VERIFIED' ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 font-bold rounded bg-emerald-100 text-emerald-800 text-[11px]">
+                    <CheckCircle2 className="w-3 h-3" /> Two-Point GPS Verified {visit.gpsDriftMeters !== undefined ? `(${visit.gpsDriftMeters}m drift)` : ''}
+                  </span>
+                ) : visit.humanVerificationStatus === 'FLAGGED' ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 font-bold rounded bg-rose-100 text-rose-800 text-[11px]">
+                    <AlertTriangle className="w-3 h-3" /> FLAGGED: Suspicious Pin {visit.gpsDriftMeters !== undefined ? `(${visit.gpsDriftMeters}m drift)` : ''}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 font-bold rounded bg-amber-100 text-amber-800 text-[11px]">
+                    Pending Verification
+                  </span>
+                )}
               </div>
             </div>
           </div>

@@ -188,6 +188,18 @@ export async function POST(request: Request) {
     const city = body.city || body.dealerCity || body.village || employee.territory;
     const remarks = String(body.remarks || body.remarksBooking || 'Visit Completed').trim();
 
+    const driftMeters = body.gpsDriftMeters !== undefined && !isNaN(Number(body.gpsDriftMeters)) ? Number(body.gpsDriftMeters) : undefined;
+    let verificationStatus: 'VERIFIED' | 'FLAGGED' | 'PENDING' = body.humanVerificationStatus || 'PENDING';
+    if (driftMeters !== undefined) {
+      if (driftMeters < 1) {
+        verificationStatus = 'FLAGGED';
+      } else if (driftMeters > 800) {
+        verificationStatus = 'FLAGGED';
+      } else {
+        verificationStatus = 'VERIFIED';
+      }
+    }
+
     const newVisit: Visit = {
       id: `v-${Date.now()}`,
       employeeId: employee.id,
@@ -208,7 +220,9 @@ export async function POST(request: Request) {
       remarksBooking: remarks,
       isRepeatLocation: body.isRepeatLocation !== undefined ? Boolean(body.isRepeatLocation) : isRepeat,
       distanceFromPrevKm: body.distanceFromPrevKm !== undefined ? Number(body.distanceFromPrevKm) : distanceFromPrev,
-      humanVerificationStatus: 'PENDING',
+      humanVerificationStatus: verificationStatus,
+      gpsDriftMeters: driftMeters,
+      verificationNote: body.verificationNote || (driftMeters !== undefined ? `${driftMeters}m GPS Drift` : undefined),
       timestamp: body.timestamp || new Date().toISOString(),
     };
 

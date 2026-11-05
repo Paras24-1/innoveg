@@ -166,9 +166,19 @@ export const VisitFeed: React.FC<VisitFeedProps> = ({
                         📷 Inspect Photo
                       </button>
 
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
-                        Human Verified
-                      </span>
+                      {visit.humanVerificationStatus === 'VERIFIED' ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold flex items-center gap-1">
+                          🟢 GPS Verified {visit.gpsDriftMeters !== undefined ? `(${visit.gpsDriftMeters}m drift)` : ''}
+                        </span>
+                      ) : visit.humanVerificationStatus === 'FLAGGED' ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 font-bold flex items-center gap-1">
+                          🚨 Flagged {visit.gpsDriftMeters !== undefined ? `(${visit.gpsDriftMeters}m drift)` : ''}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+                          🟡 Pending Review
+                        </span>
+                      )}
 
                       {Number(visit.distanceFromPrevKm || 0) > 0 && (
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium border border-slate-200">

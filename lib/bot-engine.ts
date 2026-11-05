@@ -1,6 +1,6 @@
 import { db, getTodayDateString } from './db';
 import { VisitType, Visit, BotStep, BotSession } from './types';
-import { calculateDistanceKm, isDuplicateLocation } from './geo';
+import { calculateDistanceKm, calculateDistanceMeters, isDuplicateLocation } from './geo';
 import { extractOdometerKm } from './gemini-ocr';
 
 export interface BotIncomingMessage {
@@ -578,7 +578,7 @@ export async function processIncomingWhatsAppMessage(
     };
   }
 
-  // Step 3: Collecting GPS Location
+  // Step 3: Collecting GPS Location (Point 1 - Arrival)
   if (session.currentStep === 'COLLECT_LOCATION') {
     let lat: number | undefined;
     let lng: number | undefined;
@@ -588,19 +588,12 @@ export async function processIncomingWhatsAppMessage(
       lat = Number(msg.location.latitude);
       lng = Number(msg.location.longitude);
       if (msg.location.name) locationName = msg.location.name;
-    } else if (text.includes(',')) {
-      const parts = text.split(',');
-      const parsedLat = parseFloat(parts[0].trim());
-      const parsedLng = parseFloat(parts[1].trim());
-      if (!isNaN(parsedLat) && !isNaN(parsedLng)) {
-        lat = parsedLat;
-        lng = parsedLng;
-      }
     }
 
+    // Anti-Fraud: Block plain text coordinates (forces native WhatsApp GPS share)
     if (lat === undefined || lng === undefined) {
       return {
-        replyText: `⚠️ लोकेशन नहीं मिली।\n\nकृपया WhatsApp से अपनी 📌 **Live/Current Location** भेजें या Latitude, Longitude लिखें (जैसे *21.7709, 78.2575*).`,
+        replyText: `⚠️ लोकेशन नहीं मिली।\n\nकृपया WhatsApp 📎 Attachment -> 📍 **Location** फीचर से अपनी वास्तविक Live GPS Location शेयर करें।\n\n*(सुरक्षा नियमानुसार टेक्स्ट में लिखे कोऑर्डिनेट्स मान्य नहीं हैं)*`,
         currentStep: 'COLLECT_LOCATION',
         requiresLocation: true,
       };
@@ -609,11 +602,12 @@ export async function processIncomingWhatsAppMessage(
     session.tempVisitData.latitude = lat;
     session.tempVisitData.longitude = lng;
     session.tempVisitData.locationName = locationName;
+    session.tempVisitData.location1Time = Date.now();
     session.currentStep = 'COLLECT_PHOTO';
     await db.saveSession(session);
 
     return {
-      replyText: `📍 *GPS लोकेशन प्राप्त हुई*: ${lat.toFixed(4)}, ${lng.toFixed(4)}\n\n📷 अब Visit की **Live Photo** भेजें (कैमरे से फोटो खींचकर भेजें).`,
+      replyText: `📍 *1st GPS (Arrival) प्राप्त*: ${lat.toFixed(5)}, ${lng.toFixed(5)}\n\n📷 अब Visit की **Live Photo** भेजें (कैमरे से फोटो खींचकर भेजें).`,
       currentStep: 'COLLECT_PHOTO',
       requiresPhoto: true,
     };
@@ -641,7 +635,7 @@ export async function processIncomingWhatsAppMessage(
     };
   }
 
-  // Step 5: Compulsory Remarks & Saving Visit
+  // Step 5: Compulsory Remarks -> Transitions to Step 6 (2nd GPS Verification)
   if (session.currentStep === 'COLLECT_REMARKS') {
     if (!text || text.length < 3 || lowerText === 'skip' || lowerText === 'none') {
       return {
@@ -652,24 +646,71 @@ export async function processIncomingWhatsAppMessage(
 
     const remarks = text.trim();
     session.tempVisitData.remarksBooking = remarks;
+    session.currentStep = 'VERIFY_LOCATION';
+    await db.saveSession(session);
 
-    const lat = Number(session.tempVisitData.latitude) || 21.7709;
-    const lng = Number(session.tempVisitData.longitude) || 78.2575;
+    return {
+      replyText: `📝 *Remarks दर्ज हो गए!*\n\n📍 *अंतिम सत्यापन (Two-Point GPS Audit)*:\nकृपया विज़िट समाप्ति पर अपनी **Current Live GPS Location** एक बार पुनः शेयर करें।\n\n*(कंपनी सुरक्षा नियमानुसार फर्जी पिन या पुरानी लोकेशन रोकने हेतु 2nd GPS अनिवार्य है)*`,
+      currentStep: 'VERIFY_LOCATION',
+      requiresLocation: true,
+    };
+  }
+
+  // Step 6: 2nd GPS Location & Drift Analysis (Two-Point GPS Drift Detection)
+  if (session.currentStep === 'VERIFY_LOCATION') {
+    let verifyLat: number | undefined;
+    let verifyLng: number | undefined;
+
+    if (msg.location && !isNaN(Number(msg.location.latitude)) && !isNaN(Number(msg.location.longitude))) {
+      verifyLat = Number(msg.location.latitude);
+      verifyLng = Number(msg.location.longitude);
+    }
+
+    if (verifyLat === undefined || verifyLng === undefined) {
+      return {
+        replyText: `⚠️ अंतिम सत्यापन हेतु GPS लोकेशन प्राप्त नहीं हुई।\n\nकृपया WhatsApp 📎 Attachment -> 📍 **Location** से अपनी करंट लाइव लोकेशन शेयर करें।\n\n*(टेक्स्ट कोऑर्डिनेट्स मान्य नहीं हैं)*`,
+        currentStep: 'VERIFY_LOCATION',
+        requiresLocation: true,
+      };
+    }
+
+    const lat1 = Number(session.tempVisitData.latitude);
+    const lng1 = Number(session.tempVisitData.longitude);
+    const driftMeters = calculateDistanceMeters(lat1, lng1, verifyLat, verifyLng);
+
+    // Two-Point GPS Drift Evaluation:
+    // 1) 0m (or < 1m) = 100% Bit-for-bit identical -> Fake Static Pinned Location (FLAGGED)
+    // 2) > 800m = Excessive drift during a short visit -> Location mismatch (FLAGGED)
+    // 3) 1m to 800m = Natural hardware GPS drift / officer walking around -> VERIFIED!
+    let verificationStatus: 'VERIFIED' | 'FLAGGED' = 'VERIFIED';
+    let driftBadge = '';
+
+    if (driftMeters < 1) {
+      verificationStatus = 'FLAGGED';
+      driftBadge = `⚠️ *संदिग्ध (0m Drift)*: दोनों GPS बिल्कुल एक समान हैं। यह स्थिर पिन (Static Pinned Location) दर्शाता है।`;
+    } else if (driftMeters > 800) {
+      verificationStatus = 'FLAGGED';
+      driftBadge = `⚠️ *संदिग्ध (${driftMeters}m Drift)*: विज़िट के दौरान असामान्य अधिक दूरी दर्ज हुई।`;
+    } else {
+      verificationStatus = 'VERIFIED';
+      driftBadge = `✅ *GPS सत्यापित (${driftMeters}m natural drift)*: विज़िट वास्तविक है।`;
+    }
 
     // Retrieve previous visits to calculate distance & repeat location
     const todayVisits = await db.getTodayVisitsByEmployee(employee.id);
     const lastVisit = todayVisits.length > 0 ? todayVisits[0] : undefined;
     let distanceFromPrev = 0;
     if (lastVisit) {
-      distanceFromPrev = calculateDistanceKm(lastVisit.latitude, lastVisit.longitude, lat, lng);
+      distanceFromPrev = calculateDistanceKm(lastVisit.latitude, lastVisit.longitude, lat1, lng1);
     }
 
     const allEmpVisits = await db.getVisitsByEmployee(employee.id);
-    const isRepeat = isDuplicateLocation(lat, lng, allEmpVisits, 150);
+    const isRepeat = isDuplicateLocation(lat1, lng1, allEmpVisits, 150);
 
     const visitType = session.tempVisitData.visitType || 'Farmer Visit';
     const entityName = session.tempVisitData.entityName || 'Field Visit';
     const village = session.tempVisitData.village || employee.territory;
+    const remarks = session.tempVisitData.remarksBooking || '';
 
     const newVisit: Visit = {
       id: `v-${Date.now()}`,
@@ -684,14 +725,16 @@ export async function processIncomingWhatsAppMessage(
       contactMobile: session.tempVisitData.remarksBooking?.match(/\d{10}/)?.[0] || '',
       city: village,
       village,
-      latitude: lat,
-      longitude: lng,
+      latitude: lat1,
+      longitude: lng1,
       locationName: session.tempVisitData.locationName || `${village}, ${employee.district}`,
       photoUrl: session.tempVisitData.photoUrl || 'https://images.unsplash.com/photo-1592417817098-8f3d6eb22513?w=600&auto=format&fit=crop&q=80',
       remarksBooking: remarks,
       isRepeatLocation: isRepeat,
       distanceFromPrevKm: distanceFromPrev,
-      humanVerificationStatus: 'PENDING',
+      humanVerificationStatus: verificationStatus,
+      gpsDriftMeters: driftMeters,
+      verificationNote: driftBadge,
       timestamp: new Date().toISOString(),
     };
 
@@ -712,7 +755,7 @@ export async function processIncomingWhatsAppMessage(
     }
 
     return {
-      replyText: `✅ *Field Visit सफलतापूर्वक दर्ज!* (#${todayCount})\n\n🏢 प्रकार: ${visitType}\n👤 नाम: ${entityName}\n🏘️ शहर/गाँव: ${village}\n📝 Remarks: ${remarks}\n🚗 पिछली विजिट से दूरी: ${distanceFromPrev} KM\n\n${targetStatus}\n\nअगली विजिट दर्ज करने के लिए *New Visit* भेजें या शाम को *Punch Out* करें।`,
+      replyText: `✅ *Field Visit सफलतापूर्वक दर्ज!* (#${todayCount})\n\n🏢 प्रकार: ${visitType}\n👤 नाम: ${entityName}\n🏘️ शहर/गाँव: ${village}\n📝 Remarks: ${remarks}\n📍 GPS Drift: ${driftMeters} मीटर\n🛡️ सुरक्षा जांच: ${driftBadge}\n🚗 पिछली विजिट से दूरी: ${distanceFromPrev} KM\n\n${targetStatus}\n\nअगली विजिट दर्ज करने के लिए *New Visit* भेजें या शाम को *Punch Out* करें।`,
       currentStep: 'START',
       quickReplies: ['New Visit', 'Punch Out', 'Menu'],
       recordedVisit: savedVisit,

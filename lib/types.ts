@@ -54,6 +54,8 @@ export interface Visit {
   isRepeatLocation: boolean;
   distanceFromPrevKm: number;
   humanVerificationStatus?: 'VERIFIED' | 'FLAGGED' | 'PENDING';
+  gpsDriftMeters?: number; // Two-point GPS drift in meters (Arrival vs Departure fix)
+  verificationNote?: string;
   aiAnalysis?: AIAnalysisResult;
   timestamp: string; // ISO 8601
 }
@@ -120,6 +122,7 @@ export type BotStep =
   | 'COLLECT_LOCATION'
   | 'COLLECT_PHOTO'
   | 'COLLECT_REMARKS'
+  | 'VERIFY_LOCATION'
   | 'PUNCH_OUT_LOCATION'
   | 'PUNCH_OUT_METER_PHOTO'
   | 'PUNCH_OUT_KM'
@@ -136,6 +139,10 @@ export interface BotSession {
     latitude?: number;
     longitude?: number;
     locationName?: string;
+    location1Time?: number;
+    verifyLatitude?: number;
+    verifyLongitude?: number;
+    gpsDriftMeters?: number;
     photoUrl?: string;
     remarksBooking?: string;
     // Odometer & Punch data
