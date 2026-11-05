@@ -189,9 +189,16 @@ export async function POST(request: Request) {
     const remarks = String(body.remarks || body.remarksBooking || 'Visit Completed').trim();
 
     const driftMeters = body.gpsDriftMeters !== undefined && !isNaN(Number(body.gpsDriftMeters)) ? Number(body.gpsDriftMeters) : undefined;
+    const durationSeconds = body.durationSeconds !== undefined && !isNaN(Number(body.durationSeconds)) ? Number(body.durationSeconds) : undefined;
+    
+    // Honor status sent by bot engine or calculate using drift + duration
     let verificationStatus: 'VERIFIED' | 'FLAGGED' | 'PENDING' = body.humanVerificationStatus || 'PENDING';
-    if (driftMeters !== undefined) {
+    if (body.humanVerificationStatus) {
+      verificationStatus = body.humanVerificationStatus;
+    } else if (driftMeters !== undefined) {
       if (driftMeters > 500) {
+        verificationStatus = 'FLAGGED';
+      } else if (durationSeconds !== undefined && durationSeconds < 90 && driftMeters < 10) {
         verificationStatus = 'FLAGGED';
       } else {
         verificationStatus = 'VERIFIED';

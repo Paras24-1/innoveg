@@ -678,21 +678,29 @@ export async function processIncomingWhatsAppMessage(
     const lng1 = Number(session.tempVisitData.longitude);
     const driftMeters = calculateDistanceMeters(lat1, lng1, verifyLat, verifyLng);
 
-    // Two-Point GPS Drift Evaluation:
-    // Consistency check: The officer must remain at the visit location throughout the visit (0m to 500m).
-    // - 0m to 500m = VERIFIED (0m = stationary at desk/counter with cached phone GPS fix; 5-500m = natural drift or walking around farm/shop)
-    // - > 500m = FLAGGED (Excessive movement / teleportation between arrival and departure)
+    // Two-Point GPS Drift + Time-Gap Evaluation:
+    // Strategy: A genuine field visit takes time (discussion, farm survey, filling details).
+    // - If both locations arrive in < 90 seconds with 0m-5m drift -> FLAGGED (Scripted/fake pin resend)
+    // - If drift > 500m -> FLAGGED (Location mismatch / teleportation)
+    // - If visit duration >= 90 seconds and drift <= 500m -> VERIFIED
+    const location1Time = Number(session.tempVisitData.location1Time) || 0;
+    const elapsedMs = location1Time > 0 ? Date.now() - location1Time : 999_999;
+    const elapsedSeconds = Math.round(elapsedMs / 1000);
+    const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+
     let verificationStatus: 'VERIFIED' | 'FLAGGED' = 'VERIFIED';
     let driftBadge = '';
 
     if (driftMeters > 500) {
       verificationStatus = 'FLAGGED';
-      driftBadge = `⚠️ *संदिग्ध (${driftMeters}m Drift)*: विज़िट के दौरान अत्यधिक दूरी अंतर (Location mismatch)`;
+      driftBadge = `⚠️ *संदिग्ध (${driftMeters}m Drift)*: Arrival और Departure Location में अत्यधिक अंतर — Location Mismatch`;
+    } else if (elapsedSeconds < 90 && driftMeters < 10) {
+      verificationStatus = 'FLAGGED';
+      driftBadge = `⚠️ *संदिग्ध (${elapsedSeconds}s में दोनों GPS)*: विज़िट का समय अत्यधिक कम — फ़र्ज़ी/कॉपी पिन संभावित`;
     } else {
       verificationStatus = 'VERIFIED';
-      driftBadge = driftMeters === 0
-        ? `✅ *GPS सत्यापित (0m - Same Location)*: विज़िट स्थान प्रमाणित`
-        : `✅ *GPS सत्यापित (${driftMeters}m drift)*: विज़िट प्रमाणित`;
+      const timeStr = elapsedMinutes > 0 ? `${elapsedMinutes}m ${elapsedSeconds % 60}s` : `${elapsedSeconds}s`;
+      driftBadge = `✅ *GPS सत्यापित (${driftMeters}m drift, ${timeStr} अवधि)*: विज़िट प्रमाणित`;
     }
 
     // Retrieve previous visits to calculate distance & repeat location
